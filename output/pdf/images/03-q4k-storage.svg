@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="950" viewBox="0 0 1800 950">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">What Q4_K actually stores</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">A tensor block has 256 weights. The model preset Q4_K_M can also choose other tensor types.</text>
+<rect x="60" y="190" width="680" height="165" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Source block</text>
+<text x="82" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">256 F16 values = 512 bytes</text>
+<text x="82" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">256 F32 values = 1024 bytes</text>
+<rect x="1000" y="190" width="740" height="165" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="1022" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Q4_K encoded block</text>
+<text x="1022" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">256 4-bit codes plus shared metadata</text>
+<text x="1022" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">144 bytes = 4.5 bits per weight</text>
+<line x1="740" y1="272" x2="1000" y2="272" stroke="#566776" stroke-width="5"/>
+<polygon points="1000,272 984.2035138859733,280.62965969487567 984.2035138859733,263.37034030512433" fill="#566776"/>
+<rect x="60" y="440" width="940" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="487.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">128 bytes of weight codes</text>
+<text x="82" y="533.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">256 values x 4 bits</text>
+<text x="82" y="571.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Two codes packed into each byte</text>
+<rect x="1040" y="440" width="360" height="180" rx="18" fill="#EAF5F1" stroke="#14766B" stroke-width="3"/>
+<text x="1062" y="487.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#14766B">12 bytes</text>
+<text x="1062" y="533.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Sub-block scales</text>
+<text x="1062" y="571.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">and minima</text>
+<rect x="1440" y="440" width="300" height="180" rx="18" fill="#FFF4E7" stroke="#A65D13" stroke-width="3"/>
+<text x="1462" y="487.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#A65D13">4 bytes</text>
+<text x="1462" y="533.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Two F16</text>
+<text x="1462" y="571.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">block scales</text>
+<text x="60" y="724.32" font-family="Arial, sans-serif" font-size="39" font-weight="700" fill="#142738">Effective bits = 144 bytes x 8 / 256 weights = 4.5</text>
+<text x="60" y="785.28" font-family="Arial, sans-serif" font-size="31" font-weight="400" fill="#142738">Reconstruction uses a local scale and offset. Rounding error remains.</text>
+<text x="60" y="836.52" font-family="Arial, sans-serif" font-size="29" font-weight="400" fill="#566776">Whole-file size also includes other tensor types, GGUF metadata and alignment.</text>
+<text x="60" y="921.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>

@@ -1,0 +1,7 @@
+Request and expected content were supplied by the user. No remote endpoint was called.
+request.json preserves decoded message strings, tabs, model alias and sampling values.
+request-no-prefix-cache.json adds cache_prompt=false for llama.cpp comparison runs.
+expected.txt contains three tab-separated fields and a final newline.
+rendered-prompt.txt is a Jinja2 rendering, not a tokenization or llama.cpp runtime test.
+The supplied service reported 97 prompt tokens and 21 completion tokens. These counts have not been independently reproduced.
+Use the same checkpoint, system prompt, history, template and thinking mode when comparing runtimes.

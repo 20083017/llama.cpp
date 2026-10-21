@@ -1,0 +1,17 @@
+{
+  "revision": "3bb63cbcbfb62056c84fe9e521b0f3d756d29c32",
+  "declared_dtype": "float32",
+  "tokenizer_class": "Qwen2Tokenizer",
+  "template_cases_passed": 6,
+  "special_tokens_checked": 26,
+  "f16_kv_mib_at_4096": 448.0,
+  "nonthinking_render": "<|im_start|>system\nClassify the request.<|im_end|>\n<|im_start|>user\nTurn on the lights.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+  "thinking_render": "<|im_start|>system\nClassify the request.<|im_end|>\n<|im_start|>user\nTurn on the lights.<|im_end|>\n<|im_start|>assistant\n",
+  "training_render": "<|im_start|>system\nClassify the request.<|im_end|>\n<|im_start|>user\nTurn on the lights.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n{\"intent\":\"lights_on\"}<|im_end|>\n",
+  "file_sha256": {
+    "config.json": "3f828735850f9bc4746b27af18f72bf772303443a5f854d0b3254d0685bd9c93",
+    "generation_config.json": "fed1d129ad8fcdc380ef0275351d187f18dd61277a816c248569cabf02cbfc30",
+    "tokenizer_config.json": "cd5c1909da4950a610a9e3a6cb6763cff0381d91c6f0838855db8d5ae83d6c9f",
+    "chat_template.jinja": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8"
+  }
+}

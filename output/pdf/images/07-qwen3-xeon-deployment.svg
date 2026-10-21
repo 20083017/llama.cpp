@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="870" viewBox="0 0 1800 870">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">Qwen3-0.6B on your Xeon workstation</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">Start with a resident CPU server; measure the CUDA alternative after the CPU baseline.</text>
+<rect x="60" y="180" width="490" height="160" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="227.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Model artifact</text>
+<text x="82" y="273.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Existing GGUF or HF conversion</text>
+<text x="82" y="311.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Q8_0 first; Q5_K_M / Q4_K_M trials</text>
+<rect x="655" y="180" width="490" height="160" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="677" y="227.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">llama-server</text>
+<text x="677" y="273.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">CPU Release build, native kernels</text>
+<text x="677" y="311.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">4 threads, one slot, context 4096</text>
+<rect x="1250" y="180" width="490" height="160" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="1272" y="227.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Your application</text>
+<text x="1272" y="273.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">HTTP chat requests on localhost</text>
+<text x="1272" y="311.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Streaming response + task scoring</text>
+<line x1="550" y1="260" x2="655" y2="260" stroke="#566776" stroke-width="5"/>
+<polygon points="655,260 639.2035138859733,268.62965969487567 639.2035138859733,251.37034030512436" fill="#566776"/>
+<line x1="1145" y1="260" x2="1250" y2="260" stroke="#566776" stroke-width="5"/>
+<polygon points="1250,260 1234.2035138859733,268.62965969487567 1234.2035138859733,251.37034030512436" fill="#566776"/>
+<rect x="60" y="430" width="790" height="190" rx="18" fill="#EAF5F1" stroke="#14766B" stroke-width="3"/>
+<text x="82" y="477.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#14766B">CPU memory budget</text>
+<text x="82" y="523.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Model weights + KV cache + compute buffers</text>
+<text x="82" y="561.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Q8_0 file: about 639 MB (decimal)</text>
+<text x="82" y="599.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">F16 KV at 4096 tokens: about 448 MiB</text>
+<rect x="950" y="430" width="790" height="190" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="972" y="477.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Optional GPU experiment</text>
+<text x="972" y="523.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Same model, same requests and quality checks</text>
+<text x="972" y="561.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">CUDA build + full layer offload</text>
+<text x="972" y="599.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Verify GPU model, toolkit and driver first</text>
+<line x1="900" y1="340" x2="900" y2="395" stroke="#566776" stroke-width="5"/>
+<polygon points="900,395 891.3703403051244,379.2035138859733 908.6296596948756,379.2035138859733" fill="#566776"/>
+<line x1="900" y1="395" x2="455" y2="395" stroke="#566776" stroke-width="5"/>
+<polygon points="455,395 470.7964861140267,386.37034030512433 470.7964861140267,403.62965969487567" fill="#566776"/>
+<line x1="455" y1="395" x2="455" y2="430" stroke="#566776" stroke-width="5"/>
+<polygon points="455,430 446.37034030512433,414.2035138859733 463.62965969487567,414.2035138859733" fill="#566776"/>
+<line x1="900" y1="395" x2="1345" y2="395" stroke="#566776" stroke-width="5"/>
+<polygon points="1345,395 1329.2035138859733,403.62965969487567 1329.2035138859733,386.37034030512433" fill="#566776"/>
+<line x1="1345" y1="395" x2="1345" y2="430" stroke="#566776" stroke-width="5"/>
+<polygon points="1345,430 1336.3703403051243,414.2035138859733 1353.6296596948757,414.2035138859733" fill="#566776"/>
+<rect x="60" y="685" width="1680" height="100" rx="18" fill="#F3F5F7" stroke="#566776" stroke-width="3"/>
+<text x="82" y="732.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#566776">Accept the smallest configuration that meets your product limits</text>
+<text x="82" y="778.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Quality score  |  p95 first-token latency  |  output tokens/s  |  peak RAM  |  sustained workload</text>
+<text x="60" y="841.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>

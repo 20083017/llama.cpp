@@ -1,0 +1,129 @@
+BASH COMMAND BLOCKS: follow guide steps; run blocks on the stated host.
+
+BLOCK 1
+sudo apt-get update
+sudo apt-get install -y build-essential cmake git python3 \
+  python3-venv libssl-dev unzip binutils
+
+git clone https://github.com/ggml-org/llama.cpp.git "$HOME/llama-qwen3-native"
+cd "$HOME/llama-qwen3-native"
+git checkout --detach 3bb63cbcbfb62056c84fe9e521b0f3d756d29c32
+git rev-parse HEAD
+
+export QWEN_SRC="$HOME/llama-qwen3-native"
+export QWEN_MODELS="$HOME/qwen3-nlu-models"
+export QWEN_SDK="$HOME/qwen3-nlu-sdk-cpu"
+export QWEN_KIT="$HOME/qwen3-native-kit"
+mkdir -p "$QWEN_MODELS"
+
+BLOCK 2
+unzip "$HOME/qwen3-native-kit.zip" -d "$HOME"
+ls "$QWEN_KIT"
+ls "$QWEN_KIT/fixtures"
+
+BLOCK 3
+cd "$QWEN_SRC"
+cmake -S . -B build-tools -DCMAKE_BUILD_TYPE=Release \
+  -DGGML_CUDA=OFF -DLLAMA_BUILD_TESTS=OFF \
+  -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF
+cmake --build build-tools -j 4 --target llama-quantize llama-bench
+
+python3 -m venv .venv-convert
+source .venv-convert/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements/requirements-convert_hf_to_gguf.txt
+
+QWEN_TRAIN_ROOT=/data/nlu/jqli/llm_train_platform/output
+QWEN_CHECKPOINT="$QWEN_TRAIN_ROOT/nlu_v12_modi_qwen3_06b_full/checkpoint-3000"
+
+python convert_hf_to_gguf.py "$QWEN_CHECKPOINT" \
+  --outfile "$QWEN_MODELS/nlu-v12-F32.gguf" --outtype f32
+
+./build-tools/bin/llama-quantize "$QWEN_MODELS/nlu-v12-F32.gguf" \
+  "$QWEN_MODELS/nlu-v12-Q8_0.gguf" Q8_0
+./build-tools/bin/llama-quantize "$QWEN_MODELS/nlu-v12-F32.gguf" \
+  "$QWEN_MODELS/nlu-v12-Q5_K_M.gguf" Q5_K_M
+./build-tools/bin/llama-quantize "$QWEN_MODELS/nlu-v12-F32.gguf" \
+  "$QWEN_MODELS/nlu-v12-Q4_K_M.gguf" Q4_K_M
+
+sha256sum "$QWEN_MODELS"/*.gguf
+
+BLOCK 4
+cd "$QWEN_SRC"
+cmake -S . -B build-so-cpu \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_LIBDIR=lib \
+  -DGGML_NATIVE=ON -DGGML_CUDA=OFF -DGGML_BACKEND_DL=OFF \
+  -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_TESTS=OFF \
+  -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF \
+  -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF
+
+cmake --build build-so-cpu -j 4 --target llama
+cmake --install build-so-cpu --prefix "$QWEN_SDK"
+
+ls -lh "$QWEN_SDK/lib/"*.so*
+ls "$QWEN_SDK/include/llama.h"
+file "$QWEN_SDK/lib/"libllama.so*
+env LD_LIBRARY_PATH="$QWEN_SDK/lib" ldd "$QWEN_SDK/lib/libllama.so"
+
+BLOCK 5
+cmake -S "$QWEN_SRC/examples/simple-cmake-pkg" \
+  -B "$QWEN_SRC/build-native-check" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QWEN_SDK"
+cmake --build "$QWEN_SRC/build-native-check" -j 4
+
+env LD_LIBRARY_PATH="$QWEN_SDK/lib" \
+  ldd "$QWEN_SRC/build-native-check/llama-simple-cmake-pkg"
+
+python3 "$QWEN_KIT/run_native_check.py" \
+  --exe "$QWEN_SRC/build-native-check/llama-simple-cmake-pkg" \
+  --model "$QWEN_MODELS/nlu-v12-F32.gguf" \
+  --library-dir "$QWEN_SDK/lib" --out "$HOME/nlu-check-f32"
+
+python3 "$QWEN_KIT/run_native_check.py" \
+  --exe "$QWEN_SRC/build-native-check/llama-simple-cmake-pkg" \
+  --model "$QWEN_MODELS/nlu-v12-Q8_0.gguf" \
+  --library-dir "$QWEN_SDK/lib" --out "$HOME/nlu-check-q8"
+
+BLOCK 6
+export QWEN_PACKAGE="$HOME/qwen3-native-package"
+mkdir -p "$QWEN_PACKAGE/lib" "$QWEN_PACKAGE/include" \
+  "$QWEN_PACKAGE/bin" "$QWEN_PACKAGE/models"
+cp -a "$QWEN_SDK/lib/." "$QWEN_PACKAGE/lib/"
+cp -a "$QWEN_SDK/include/." "$QWEN_PACKAGE/include/"
+cp "$QWEN_SRC/build-native-check/llama-simple-cmake-pkg" \
+  "$QWEN_PACKAGE/bin/qwen_nlu_demo"
+cp "$QWEN_MODELS/nlu-v12-Q8_0.gguf" "$QWEN_PACKAGE/models/"
+cp "$QWEN_KIT/SOURCE_REVISION.txt" "$QWEN_PACKAGE/"
+
+python3 "$QWEN_KIT/run_native_check.py" \
+  --exe "$QWEN_PACKAGE/bin/qwen_nlu_demo" \
+  --model "$QWEN_PACKAGE/models/nlu-v12-Q8_0.gguf" \
+  --library-dir "$QWEN_PACKAGE/lib" --out "$HOME/nlu-check-packaged"
+
+BLOCK 7
+nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
+nvcc --version
+
+BLOCK 8
+export QWEN_SDK_CUDA="$HOME/qwen3-nlu-sdk-cuda"
+cd "$QWEN_SRC"
+cmake -S . -B build-so-cuda \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_LIBDIR=lib \
+  -DGGML_NATIVE=ON -DGGML_CUDA=ON -DGGML_BACKEND_DL=OFF \
+  -DLLAMA_BUILD_COMMON=OFF -DLLAMA_BUILD_TESTS=OFF \
+  -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF \
+  -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF
+cmake --build build-so-cuda -j 4 --target llama
+cmake --install build-so-cuda --prefix "$QWEN_SDK_CUDA"
+
+cmake -S "$QWEN_SRC/examples/simple-cmake-pkg" \
+  -B "$QWEN_SRC/build-native-check-cuda" \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QWEN_SDK_CUDA"
+cmake --build "$QWEN_SRC/build-native-check-cuda" -j 4
+
+python3 "$QWEN_KIT/run_native_check.py" \
+  --exe "$QWEN_SRC/build-native-check-cuda/llama-simple-cmake-pkg" \
+  --model "$QWEN_MODELS/nlu-v12-Q8_0.gguf" --gpu-layers 99 \
+  --library-dir "$QWEN_SDK_CUDA/lib" --out "$HOME/nlu-check-cuda"

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1040" viewBox="0 0 1800 1040">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">A practical performance tuning workflow</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">Keep the model, workload and quality checks fixed while testing one variable at a time.</text>
+<rect x="60" y="190" width="480" height="200" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">1  Establish correctness</text>
+<text x="82" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Validate reference GGUF</text>
+<text x="82" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Check tokenizer and chat template</text>
+<rect x="660" y="190" width="480" height="200" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="682" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">2  Establish memory fit</text>
+<text x="682" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Weights + KV cache + scratch</text>
+<text x="682" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Avoid paging or VRAM spill</text>
+<rect x="1260" y="190" width="480" height="200" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="1282" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">3  Compare formats</text>
+<text x="1282" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Q4_K_M, Q5_K_M, Q8_0</text>
+<text x="1282" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Keep only acceptable quality</text>
+<rect x="60" y="510" width="480" height="200" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="557.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">4  Tune the backend</text>
+<text x="82" y="603.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">GPU offload or CPU threads</text>
+<text x="82" y="641.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Confirm the actual load log</text>
+<rect x="660" y="510" width="480" height="200" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="682" y="557.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">5  Tune the workload</text>
+<text x="682" y="603.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Batch and microbatch for prefill</text>
+<text x="682" y="641.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Context and KV types for decode</text>
+<rect x="1260" y="510" width="480" height="200" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="1282" y="557.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">6  Measure end to end</text>
+<text x="1282" y="603.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Repeat pp and tg tests</text>
+<text x="1282" y="641.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Then measure service latency</text>
+<line x1="540" y1="290" x2="660" y2="290" stroke="#566776" stroke-width="5"/>
+<polygon points="660,290 644.2035138859733,298.62965969487567 644.2035138859733,281.37034030512433" fill="#566776"/>
+<line x1="1140" y1="290" x2="1260" y2="290" stroke="#566776" stroke-width="5"/>
+<polygon points="1260,290 1244.2035138859733,298.62965969487567 1244.2035138859733,281.37034030512433" fill="#566776"/>
+<line x1="1500" y1="390" x2="1500" y2="450" stroke="#566776" stroke-width="5"/>
+<polygon points="1500,450 1491.3703403051243,434.2035138859733 1508.6296596948757,434.2035138859733" fill="#566776"/>
+<line x1="1500" y1="450" x2="300" y2="450" stroke="#566776" stroke-width="5"/>
+<polygon points="300,450 315.7964861140267,441.37034030512433 315.7964861140267,458.62965969487567" fill="#566776"/>
+<line x1="300" y1="450" x2="300" y2="510" stroke="#566776" stroke-width="5"/>
+<polygon points="300,510 291.37034030512433,494.2035138859733 308.62965969487567,494.2035138859733" fill="#566776"/>
+<line x1="540" y1="610" x2="660" y2="610" stroke="#566776" stroke-width="5"/>
+<polygon points="660,610 644.2035138859733,618.6296596948756 644.2035138859733,601.3703403051244" fill="#566776"/>
+<line x1="1140" y1="610" x2="1260" y2="610" stroke="#566776" stroke-width="5"/>
+<polygon points="1260,610 1244.2035138859733,618.6296596948756 1244.2035138859733,601.3703403051244" fill="#566776"/>
+<rect x="60" y="795" width="1680" height="140" rx="18" fill="#EAF5F1" stroke="#14766B" stroke-width="3"/>
+<text x="82" y="842.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#14766B">Accept a configuration only when it meets the full target</text>
+<text x="82" y="888.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Quality threshold + memory limit + latency or throughput target. A smaller file alone is not a performance result.</text>
+<text x="60" y="1011.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>

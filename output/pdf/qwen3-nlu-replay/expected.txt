@@ -1,0 +1,1 @@
+intelligent_car_control	skylight_control	move_direction=开大,offset_a_little=一点

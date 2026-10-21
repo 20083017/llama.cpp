@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1030" viewBox="0 0 1800 1030">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">Inside llama-quantize</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">File policy, tensor selection and numerical encoding are separate layers.</text>
+<rect x="80" y="180" width="1640" height="134" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="102" y="227.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">CLI and public API</text>
+<text x="102" y="273.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">quantize.cpp -&gt; llama_model_quantize()</text>
+<text x="102" y="304.36" font-family="Arial, sans-serif" font-size="22" font-weight="400" fill="#566776">Parse preset, imatrix, overrides, threads and buffer limit</text>
+<line x1="900" y1="314" x2="900" y2="335" stroke="#566776" stroke-width="5"/>
+<polygon points="900,335 891.3703403051244,319.2035138859733 908.6296596948756,319.2035138859733" fill="#566776"/>
+<rect x="80" y="335" width="1640" height="134" rx="18" fill="#F5F7F9" stroke="#2166A1" stroke-width="3"/>
+<text x="102" y="382.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Plan tensor formats</text>
+<text x="102" y="428.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">llama_tensor_get_type()</text>
+<text x="102" y="459.36" font-family="Arial, sans-serif" font-size="22" font-weight="400" fill="#566776">Eligibility -&gt; overrides / mixed policy -&gt; shape fallback</text>
+<line x1="900" y1="469" x2="900" y2="490" stroke="#566776" stroke-width="5"/>
+<polygon points="900,490 891.3703403051244,474.2035138859733 908.6296596948756,474.2035138859733" fill="#566776"/>
+<rect x="80" y="490" width="1640" height="134" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="102" y="537.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Process one row batch</text>
+<text x="102" y="583.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">llama_model_quantize_impl()</text>
+<text x="102" y="614.36" font-family="Arial, sans-serif" font-size="22" font-weight="400" fill="#566776">Load source range -&gt; convert to F32 when needed</text>
+<line x1="900" y1="624" x2="900" y2="645" stroke="#566776" stroke-width="5"/>
+<polygon points="900,645 891.3703403051244,629.2035138859733 908.6296596948756,629.2035138859733" fill="#566776"/>
+<rect x="80" y="645" width="1640" height="134" rx="18" fill="#F5F7F9" stroke="#2166A1" stroke-width="3"/>
+<text x="102" y="692.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Encode rows in workers</text>
+<text x="102" y="738.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">llama_tensor_quantize_impl()</text>
+<text x="102" y="769.36" font-family="Arial, sans-serif" font-size="22" font-weight="400" fill="#566776">ggml_quantize_chunk() -&gt; format encoder -&gt; validate</text>
+<line x1="900" y1="779" x2="900" y2="800" stroke="#566776" stroke-width="5"/>
+<polygon points="900,800 891.3703403051244,784.2035138859733 908.6296596948756,784.2035138859733" fill="#566776"/>
+<rect x="80" y="800" width="1640" height="134" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="102" y="847.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Write and finalize GGUF</text>
+<text x="102" y="893.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Data, offsets, types and metadata</text>
+<text x="102" y="924.36" font-family="Arial, sans-serif" font-size="22" font-weight="400" fill="#566776">Write rows incrementally; preserve or combine shards</text>
+<text x="60" y="1001.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>

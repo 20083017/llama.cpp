@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="920" viewBox="0 0 1800 920">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">Find the balance by setting limits first</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">Quality, memory and latency are acceptance conditions. The best setting depends on the workload.</text>
+<rect x="60" y="190" width="780" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">1  Set the quality floor</text>
+<text x="82" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Choose task success and allowed loss</text>
+<text x="82" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Evaluate the full deployed backend</text>
+<rect x="960" y="190" width="780" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="982" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">2  Set the memory budget</text>
+<text x="982" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Measure peak process and system memory</text>
+<text x="982" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Include context, compilation and staging</text>
+<line x1="840" y1="280" x2="960" y2="280" stroke="#566776" stroke-width="5"/>
+<polygon points="960,280 944.2035138859733,288.62965969487567 944.2035138859733,271.37034030512433" fill="#566776"/>
+<rect x="60" y="480" width="780" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="527.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">3  Set latency requirements</text>
+<text x="82" y="573.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Time to first token and decode speed</text>
+<text x="82" y="611.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Test short and long contexts separately</text>
+<rect x="960" y="480" width="780" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="982" y="527.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">4  Select a measured tradeoff</text>
+<text x="982" y="573.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Discard candidates that fail any limit</text>
+<text x="982" y="611.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Compare memory, speed and energy of survivors</text>
+<line x1="1350" y1="370" x2="1350" y2="420" stroke="#566776" stroke-width="5"/>
+<polygon points="1350,420 1341.3703403051243,404.2035138859733 1358.6296596948757,404.2035138859733" fill="#566776"/>
+<line x1="1350" y1="420" x2="450" y2="420" stroke="#566776" stroke-width="5"/>
+<polygon points="450,420 465.7964861140267,411.37034030512433 465.7964861140267,428.62965969487567" fill="#566776"/>
+<line x1="450" y1="420" x2="450" y2="480" stroke="#566776" stroke-width="5"/>
+<polygon points="450,480 441.37034030512433,464.2035138859733 458.62965969487567,464.2035138859733" fill="#566776"/>
+<line x1="840" y1="570" x2="960" y2="570" stroke="#566776" stroke-width="5"/>
+<polygon points="960,570 944.2035138859733,578.6296596948756 944.2035138859733,561.3703403051244" fill="#566776"/>
+<text x="60" y="773.16" font-family="Arial, sans-serif" font-size="32" font-weight="700" fill="#142738">CPU starting candidates: Q4_K_M and Q5_K_M, plus a high quality reference.</text>
+<text x="60" y="827.64" font-family="Arial, sans-serif" font-size="28" font-weight="400" fill="#566776">NPU candidates must also match the exact chip, backend, model and supported tensor layouts.</text>
+<text x="60" y="891.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>

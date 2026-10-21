@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1070" viewBox="0 0 1800 1070">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">CPU and NPU have different execution paths</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">Supported in the inspected llama.cpp revision; device and model coverage still require validation.</text>
+<rect x="570" y="175" width="660" height="145" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="592" y="222.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Source model and GGUF</text>
+<text x="592" y="268.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Validated weights, tokenizer and metadata</text>
+<line x1="900" y1="340" x2="310" y2="340" stroke="#566776" stroke-width="5"/>
+<polygon points="310,340 325.7964861140267,331.37034030512433 325.7964861140267,348.62965969487567" fill="#566776"/>
+<line x1="310" y1="340" x2="310" y2="390" stroke="#566776" stroke-width="5"/>
+<polygon points="310,390 301.37034030512433,374.2035138859733 318.62965969487567,374.2035138859733" fill="#566776"/>
+<line x1="900" y1="340" x2="900" y2="390" stroke="#566776" stroke-width="5"/>
+<polygon points="900,390 891.3703403051244,374.2035138859733 908.6296596948756,374.2035138859733" fill="#566776"/>
+<line x1="900" y1="340" x2="1490" y2="340" stroke="#566776" stroke-width="5"/>
+<polygon points="1490,340 1474.2035138859733,348.62965969487567 1474.2035138859733,331.37034030512433" fill="#566776"/>
+<line x1="1490" y1="340" x2="1490" y2="390" stroke="#566776" stroke-width="5"/>
+<polygon points="1490,390 1481.3703403051243,374.2035138859733 1498.6296596948757,374.2035138859733" fill="#566776"/>
+<line x1="900" y1="320" x2="900" y2="340" stroke="#566776" stroke-width="5"/>
+<polygon points="900,340 891.3703403051244,324.2035138859733 908.6296596948756,324.2035138859733" fill="#566776"/>
+<rect x="60" y="390" width="500" height="235" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="437.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Native CPU backend</text>
+<text x="82" y="483.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">CPU tensor kernels</text>
+<text x="82" y="521.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Optional repacking for the ISA</text>
+<text x="82" y="559.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Thread and cache behavior</text>
+<rect x="650" y="390" width="500" height="235" rx="18" fill="#EAF5F1" stroke="#14766B" stroke-width="3"/>
+<text x="672" y="437.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#14766B">Intel NPU via OpenVINO</text>
+<text x="672" y="483.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Translate graph and weights</text>
+<text x="672" y="521.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Compile for static shapes</text>
+<text x="672" y="559.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Cache and execute on NPU</text>
+<rect x="1240" y="390" width="500" height="235" rx="18" fill="#FFF4E7" stroke="#A65D13" stroke-width="3"/>
+<text x="1262" y="437.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#A65D13">Qualcomm via Hexagon</text>
+<text x="1262" y="483.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">HTP operation support checks</text>
+<text x="1262" y="521.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Backend tensor repacking</text>
+<text x="1262" y="559.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Offload and memory mapping</text>
+<line x1="310" y1="625" x2="310" y2="710" stroke="#566776" stroke-width="5"/>
+<polygon points="310,710 301.37034030512433,694.2035138859733 318.62965969487567,694.2035138859733" fill="#566776"/>
+<line x1="900" y1="625" x2="900" y2="710" stroke="#566776" stroke-width="5"/>
+<polygon points="900,710 891.3703403051244,694.2035138859733 908.6296596948756,694.2035138859733" fill="#566776"/>
+<line x1="1490" y1="625" x2="1490" y2="710" stroke="#566776" stroke-width="5"/>
+<polygon points="1490,710 1481.3703403051243,694.2035138859733 1498.6296596948757,694.2035138859733" fill="#566776"/>
+<rect x="60" y="710" width="1680" height="130" rx="18" fill="#F3F5F7" stroke="#566776" stroke-width="3"/>
+<text x="82" y="757.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#566776">Measure the deployed result</text>
+<text x="82" y="803.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Task quality + cold and warm latency + peak shared RAM + sustained throughput + energy</text>
+<text x="60" y="920.52" font-family="Arial, sans-serif" font-size="29" font-weight="700" fill="#142738">AMD Ryzen AI NPU follows a separate documented OGA model preparation and runtime path.</text>
+<text x="60" y="971.64" font-family="Arial, sans-serif" font-size="28" font-weight="400" fill="#566776">A GPU backend running on an AMD or Qualcomm device is not evidence of NPU execution.</text>
+<text x="60" y="1041.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>

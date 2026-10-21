@@ -1,0 +1,19 @@
+{
+  "max_tokens": 128,
+  "messages": [
+    {
+      "content": "你是智能座舱的语义算法专家，你接受用户的Query，进行深度分析，给出语义标签理解结果。多意图句式，输出标签：multi",
+      "role": "system"
+    },
+    {
+      "content": "history:数值减少4\tglobal_control\tgear_direction=减小,gear_offset_number=4,gear_unit=档\t;再开点\tintelligent_car_control\tturn_on_device\tname=天窗;query: 调高一些",
+      "role": "user"
+    }
+  ],
+  "model": "qwen3_nlu",
+  "stream": false,
+  "temperature": 0.01,
+  "top_k": 1,
+  "top_p": 0.95,
+  "cache_prompt": false
+}

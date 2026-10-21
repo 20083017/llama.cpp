@@ -1,0 +1,1 @@
+history:数值减少4	global_control	gear_direction=减小,gear_offset_number=4,gear_unit=档	;再开点	intelligent_car_control	turn_on_device	name=天窗;query: 调高一些

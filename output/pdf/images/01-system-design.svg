@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="950" viewBox="0 0 1800 950">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">Conversion and quantization system design</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">Offline artifacts feed the inference runtime. Calibration is an optional branch for many formats.</text>
+<rect x="60" y="190" width="490" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">1  Source checkpoint</text>
+<text x="82" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Weights and shard index</text>
+<text x="82" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Config, tokenizer, chat template</text>
+<rect x="655" y="190" width="490" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="677" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">2  Python conversion</text>
+<text x="677" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Architecture adapter and tensor map</text>
+<text x="677" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">GGUFWriter serializes the result</text>
+<rect x="1250" y="190" width="490" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="1272" y="237.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">3  Reference GGUF</text>
+<text x="1272" y="283.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Usually F16 or BF16</text>
+<text x="1272" y="321.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Validate before reducing precision</text>
+<line x1="550" y1="280" x2="655" y2="280" stroke="#566776" stroke-width="5"/>
+<polygon points="655,280 639.2035138859733,288.62965969487567 639.2035138859733,271.37034030512433" fill="#566776"/>
+<line x1="1145" y1="280" x2="1250" y2="280" stroke="#566776" stroke-width="5"/>
+<polygon points="1250,280 1234.2035138859733,288.62965969487567 1234.2035138859733,271.37034030512433" fill="#566776"/>
+<rect x="1250" y="470" width="490" height="190" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="1272" y="517.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">4  C++ quantization</text>
+<text x="1272" y="563.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Choose types and encode blocks</text>
+<text x="1272" y="601.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">CPU workers, bounded row batches</text>
+<line x1="1495" y1="370" x2="1495" y2="470" stroke="#566776" stroke-width="5"/>
+<polygon points="1495,470 1486.3703403051243,454.2035138859733 1503.6296596948757,454.2035138859733" fill="#566776"/>
+<rect x="655" y="470" width="490" height="190" rx="18" fill="#EAF5F1" stroke="#14766B" stroke-width="3"/>
+<text x="677" y="517.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#14766B">Optional calibration</text>
+<text x="677" y="563.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">llama-imatrix + representative text</text>
+<text x="677" y="601.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Activation statistics -&gt; imatrix.gguf</text>
+<line x1="1250" y1="340" x2="1145" y2="470" stroke="#566776" stroke-width="5"/>
+<polygon points="1145,470 1148.2121507392492,452.28892754155356 1161.6388860348254,463.13359835721116" fill="#566776"/>
+<line x1="1145" y1="565" x2="1250" y2="565" stroke="#14766B" stroke-width="5"/>
+<polygon points="1250,565 1234.2035138859733,573.6296596948756 1234.2035138859733,556.3703403051244" fill="#14766B"/>
+<rect x="60" y="470" width="490" height="190" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="517.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">5  Quantized GGUF</text>
+<text x="82" y="563.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Mixed tensor types + metadata</text>
+<text x="82" y="601.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Quality and load checks</text>
+<line x1="1495" y1="700" x2="580" y2="700" stroke="#566776" stroke-width="5"/>
+<polygon points="580,700 595.7964861140267,691.3703403051244 595.7964861140267,708.6296596948756" fill="#566776"/>
+<line x1="580" y1="700" x2="580" y2="600" stroke="#566776" stroke-width="5"/>
+<polygon points="580,600 588.6296596948756,615.7964861140267 571.3703403051244,615.7964861140267" fill="#566776"/>
+<line x1="580" y1="600" x2="550" y2="600" stroke="#566776" stroke-width="5"/>
+<polygon points="550,600 565.7964861140267,591.3703403051244 565.7964861140267,608.6296596948756" fill="#566776"/>
+<line x1="1495" y1="660" x2="1495" y2="700" stroke="#566776" stroke-width="5"/>
+<polygon points="1495,700 1486.3703403051243,684.2035138859733 1503.6296596948757,684.2035138859733" fill="#566776"/>
+<rect x="60" y="755" width="1680" height="110" rx="18" fill="#F3F5F7" stroke="#566776" stroke-width="3"/>
+<text x="82" y="802.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#566776">6  Runtime and measurement</text>
+<text x="82" y="848.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">CPU / CUDA / Vulkan / other backends  |  Weights + KV cache + compute buffers  |  pp, tg, latency, memory</text>
+<line x1="305" y1="660" x2="305" y2="755" stroke="#566776" stroke-width="5"/>
+<polygon points="305,755 296.37034030512433,739.2035138859733 313.62965969487567,739.2035138859733" fill="#566776"/>
+<text x="60" y="921.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>

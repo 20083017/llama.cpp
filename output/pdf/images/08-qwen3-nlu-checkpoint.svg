@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="880" viewBox="0 0 1800 880">
+<rect width="100%" height="100%" fill="white"/>
+<text x="60" y="80.24000000000001" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#142738">Your NLU checkpoint: preserve behavior first</text>
+<text x="60" y="128.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#566776">checkpoint-3000  |  Thinking disabled  |  top_k = 1  |  Tab-separated labels and slots</text>
+<rect x="60" y="180" width="490" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="82" y="227.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">1  Training host</text>
+<text x="82" y="273.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Weights and tokenizer files</text>
+<text x="82" y="311.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Config declares float32</text>
+<text x="82" y="349.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Keep chat_template.jinja</text>
+<rect x="655" y="180" width="490" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="677" y="227.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">2  Export and compare</text>
+<text x="677" y="273.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">F32 GGUF reference</text>
+<text x="677" y="311.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Q8_0, Q5_K_M, Q4_K_M</text>
+<text x="677" y="349.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Each from the same reference</text>
+<rect x="1250" y="180" width="490" height="180" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="1272" y="227.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">3  Xeon / CUDA host</text>
+<text x="1272" y="273.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Native CPU or CUDA server</text>
+<text x="1272" y="311.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Alias: qwen3_nlu</text>
+<text x="1272" y="349.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Same requests and output format</text>
+<line x1="550" y1="270" x2="655" y2="270" stroke="#566776" stroke-width="5"/>
+<polygon points="655,270 639.2035138859733,278.62965969487567 639.2035138859733,261.37034030512433" fill="#566776"/>
+<line x1="1145" y1="270" x2="1250" y2="270" stroke="#566776" stroke-width="5"/>
+<polygon points="1250,270 1234.2035138859733,278.62965969487567 1234.2035138859733,261.37034030512433" fill="#566776"/>
+<rect x="60" y="445" width="800" height="190" rx="18" fill="#EAF5F1" stroke="#14766B" stroke-width="3"/>
+<text x="82" y="492.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#14766B">Request format stays unchanged</text>
+<text x="82" y="538.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Chinese system instruction</text>
+<text x="82" y="576.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">History remains text inside one user message</text>
+<text x="82" y="614.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Keep tabs, field order and punctuation</text>
+<rect x="950" y="445" width="790" height="190" rx="18" fill="#ECF3F9" stroke="#2166A1" stroke-width="3"/>
+<text x="972" y="492.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#2166A1">Assistant generation prefix</text>
+<text x="972" y="538.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">&lt;|im_start|&gt;assistant</text>
+<text x="972" y="576.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">&lt;think&gt; + empty content + &lt;/think&gt;</text>
+<text x="972" y="614.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">Empty block is already in the prompt</text>
+<rect x="60" y="700" width="1680" height="110" rx="18" fill="#F3F5F7" stroke="#566776" stroke-width="3"/>
+<text x="82" y="747.28" font-family="Arial, sans-serif" font-size="31" font-weight="700" fill="#566776">Select using NLU accuracy and end-to-end latency</text>
+<text x="82" y="793.76" font-family="Arial, sans-serif" font-size="27" font-weight="400" fill="#142738">One supplied response: 97 input tokens + 21 output tokens  |  Observed service counts, not Xeon benchmark results</text>
+<text x="60" y="851.24" font-family="Arial, sans-serif" font-size="23" font-weight="400" fill="#566776">llama.cpp 3bb63cbcb  |  Source based design  |  21 October 2026</text>
+</svg>
