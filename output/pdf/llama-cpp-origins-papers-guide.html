@@ -1,0 +1,91 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>llama.cpp 起源、演进史与参考论文</title><style>body{font-family:"Microsoft YaHei",Arial,sans-serif;color:#142738;max-width:960px;margin:40px auto;line-height:1.7;padding:0 24px}h1,h2{color:black}h1{line-height:1.2}section{margin:0 0 54px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #d6e0e8}th{background:#e5edf4}pre{background:#f1f4f7;padding:18px;overflow-x:auto;font-family:Consolas,monospace;font-size:13px}img,svg{width:100%}.small{font-size:13px;color:#566776}a{color:#2166a1}.tag{display:inline-block;padding:1px 8px;border-radius:4px;font-size:12px;font-weight:bold;color:#fff}.arch{background:#1d4e79}.sys{background:#2d5a2d}.quant{background:#7a4d1d}.ev{background:#8a2d5a}@media print{section{break-before:page}body{max-width:none;margin:0}pre{white-space:pre-wrap}}</style></head><body>
+<section>
+<h1>llama.cpp 起源、演进史与参考论文</h1>
+<p class="h2">项目为什么诞生、怎么长成今天的样子、每项核心能力背后的论文 —— 原理文档之前的背景层</p>
+<p class="small">整理日期：2026-10-26。事实来源：项目公开历史（GitHub/官方发布）、arXiv 论文、IEEE DSAA 2025 综述。论文与代码的映射以本地工作区 D:\project\llama.cpp 的实际位置为准。</p>
+
+<h2>起源：一个周末项目如何成为行业标准</h2>
+<p class="p">作者 <b>Georgi Gerganov</b>（保加利亚工程师，索菲亚大学物理系背景）的技术脉络：2022 年 9 月起开发 <b>ggml</b> 张量库（灵感来自 Fabrice Bellard 的 LibNC，设计目标是严格内存管理 + 零运行时分配 + 多线程），先用它做了 <b>whisper.cpp</b>（OpenAI Whisper 的纯 C/C++ 移植）证明了"认真对待内存布局，消费级 CPU 也能跑严肃神经网络"。</p>
+<p class="p">2023 年 2 月 Meta 发布 LLaMA（限研究许可），数日内权重泄露。Meta 实现依赖 PyTorch + FairScale + CUDA，普通开发者跑不动。Gerganov 用一个周末在 ggml 上重写了 LLaMA 推理全链路：<b>2023 年 3 月 10 日 llama.cpp 首发</b>，7B 模型在 8GB 内存的笔记本 CPU 上可跑。关键的"顿悟时刻"：AVX2 的 256-bit SIMD 寄存器一次装 64 个 4-bit 权重 + 精心布局的内存访问 = 无 GPU 也能达到对话速度。</p>
+<p class="p">一周数千 star，迅速成为本地推理事实标准（Ollama / LM Studio / GPT4All 都以它为基座）。2023 年 6 月 Gerganov 创办 <b>ggml.ai</b>（Nat Friedman 与 Daniel Gross 预种子投资）；<b>2026 年 2 月团队加入 Hugging Face</b> 获得长期机构支持，保持 MIT 协议与社区开发模式；2026 年 3 月 GitHub 破 10 万 star（快于 PyTorch 的约 7 年与 TensorFlow 的约 8 年）。</p>
+
+<h2>演进时间线</h2>
+<svg viewBox="0 0 920 460" font-family="Microsoft YaHei, Arial" font-size="13">
+  <line x1="60" y1="30" x2="60" y2="430" stroke="#7aa7d0" stroke-width="3"/>
+  <g fill="#1d4e79">
+    <circle cx="60" cy="50" r="7"/><circle cx="60" cy="100" r="7"/><circle cx="60" cy="150" r="7"/><circle cx="60" cy="200" r="7"/><circle cx="60" cy="250" r="7"/><circle cx="60" cy="300" r="7"/><circle cx="60" cy="350" r="7"/><circle cx="60" cy="400" r="7"/>
+  </g>
+  <text x="85" y="55" font-weight="bold">2022.09 - 2023.01</text><text x="85" y="73" fill="#566776">ggml 库 + whisper.cpp：无依赖推理的两次预演</text>
+  <text x="85" y="105" font-weight="bold">2023.03.10</text><text x="85" y="123" fill="#566776">llama.cpp 首发：纯 CPU + Q4_0/Q4_1 量化，LLaMA 架构独苗</text>
+  <text x="85" y="155" font-weight="bold">2023.03 - 2023.06</text><text x="85" y="173" fill="#566776">Metal 后端（Apple 一等公民）、CUDA 加入；K-quants 超块量化(PR#1684, ikawrakow)</text>
+  <text x="85" y="205" font-weight="bold">2023.08</text><text x="85" y="223" fill="#566776">GGUF 统一格式诞生（旧 GGML 格式退役），含元数据 + mmap 友好布局</text>
+  <text x="85" y="255" font-weight="bold">2024.01 - 2024.04</text><text x="85" y="273" fill="#566776">imatrix 重要性矩阵(PR#4861)；Justine Tunney llamafile sgemm 内核合入(x86/ARM)；FlashAttention 落地</text>
+  <text x="85" y="305" font-weight="bold">2024 - 2025</text><text x="85" y="323" fill="#566776">continuous batching server、投机解码、多模态 libmtmd(2025.04)、支持数十个模型家族</text>
+  <text x="85" y="355" font-weight="bold">2025.12 - 2026.02</text><text x="85" y="373" fill="#566776">Android/ChromeOS 原生 GUI；DSA/MSA/DSV4 稀疏注意力 KV 变体；ggml.ai 团队加入 Hugging Face</text>
+  <text x="85" y="405" font-weight="bold">2026.03 - 2026.10</text><text x="85" y="423" fill="#566776">GitHub 10 万 star；稳定版发布线 v0.x（当前 0.7.0, 2026.10.15）；本工作区即此代代码</text>
+</svg>
+<p class="small">图 1. 关键里程碑。注：早期精确日期以 GitHub 历史为准；后端演进顺序为 CPU → Metal → CUDA → Vulkan/SYCL/HIP/MUSA/CANN/RPC。</p>
+</section>
+
+<section>
+<h1>参考论文与代码的映射表</h1>
+<p class="p">llama.cpp 的显著特点是"<b>论文思想 + 工程原创实现</b>"：思想来自论文，但几乎所有实现都是针对 GGUF 块结构与消费级硬件从头写的（不是移植官方代码）。按主题分类如下：</p>
+
+<h2>架构类论文（模型结构从哪来）</h2>
+<table>
+<tr><th>论文</th><th>贡献</th><th>对应实现（本仓库位置）</th></tr>
+<tr><td><b>LLaMA</b><br>Touvron et al. 2023, arXiv:2302.13971</td><td>项目最初的目标架构：RMSNorm + SwiGLU + RoPE 的 decoder-only 设计</td><td>src\models\llama.cpp 的 graph 构造器；hparams 的 norm/swiglu 配置</td></tr>
+<tr><td><b>RoFormer (RoPE)</b><br>Su et al. 2021, arXiv:2104.09864</td><td>旋转位置编码</td><td>ggml_rope_ext 算子；K-shift 的 RoPE 平移也依赖它（llama-kv-cache.cpp:877）</td></tr>
+<tr><td><b>YaRN</b><br>Peng et al. 2023, arXiv:2309.00071</td><td>RoPE 频率外插的长上下文扩展</td><td>llama-hparams.h 的 yarn 字段族 + rope 参数</td></tr>
+<tr><td><b>GQA</b><br>Ainslie et al. 2023, arXiv:2305.13245</td><td>分组 KV 头，直接决定 KV cache 大小</td><td>n_head_kv_arr[]（llama-hparams.h:59）</td></tr>
+<tr><td><b>MLA</b><br>DeepSeek-V2, arXiv:2405.04434</td><td>低秩压缩 KV，进一步压 KV cache</td><td>hparams 的 n_lora_q/n_lora_kv；models\deepseek 的 wq_a/wq_b/wkv_a_mqa</td></tr>
+<tr><td><b>NSA / 稀疏注意力</b><br>DeepSeek 2025, arXiv:2502.11089</td><td>原生训练的稀疏块注意力 + indexer</td><td>llama-kv-cache-dsa / -msa / -dsv4 变体家族（本仓库新特性）</td></tr>
+<tr><td><b>MTP</b><br>DeepSeek-V3, arXiv:2412.19437</td><td>多 token 预测头（天生适合做 draft）</td><td>server 的 --spec-type mtp</td></tr>
+</table>
+
+<h2>系统类论文（执行引擎从哪来）</h2>
+<table>
+<tr><th>论文</th><th>贡献</th><th>对应实现（本仓库位置）</th></tr>
+<tr><td><b>FlashAttention</b><br>Dao et al. 2022, arXiv:2205.14135</td><td>分块计算注意力，不物化 N×N 矩阵，长上下文的内存与速度基石</td><td>ggml_flash_attn_ext（ggml.c:5550）；CUDA 端 fattn tile/mma/vec 三套模板（ggml-cuda\fattn*.cu）</td></tr>
+<tr><td><b>投机解码</b><br>Leviathan et al. 2022, arXiv:2211.17192；Chen et al. 2023, arXiv:2302.01318</td><td>小 draft 模型猜 N 个 token、主模型一次并行验证（无损加速）</td><td>tools\server 的 --spec-draft-model/--spec-draft-n-max</td></tr>
+<tr><td><b>EAGLE / EAGLE-3</b><br>Li et al. 2024/2025, arXiv:2401.15077 / 2503.01840</td><td>特征级自回归 draft 头，比 token 级 draft 更准</td><td>server 的 --spec-type eagle3</td></tr>
+<tr><td><b>Continuous batching</b><br>Orca / vLLM 线系工作</td><td>迭代级调度，请求按 step 粒度进出 batch</td><td>server_context.cpp update_slots（:3454）主循环 + slot 状态机</td></tr>
+</table>
+
+<h2>量化类论文（压缩从哪来）</h2>
+<table>
+<tr><th>论文</th><th>贡献</th><th>对应实现（本仓库位置）</th></tr>
+<tr><td><b>OBD / OBS</b><br>LeCun 1989; Hassibi 1993</td><td>用二阶信息判断"哪些权重可压缩"的思想源头</td><td>imatrix 的理论根基（见下）</td></tr>
+<tr><td><b>GPTQ</b><br>Frantar et al. 2022, arXiv:2210.17323</td><td>逐层 Hessian 引导的 PTQ；imatrix ≈ 其对角 Hessian 的轻量版</td><td>ggml_quantize_chunk 的 weights 参数（ggml.c:8153）；对角近似误差公式见《转换量化指南》</td></tr>
+<tr><td><b>AWQ</b><br>Lin et al. 2023, arXiv:2306.00978</td><td>激活幅度标记权重重要性的思路（imatrix 的近亲）</td><td>tools\imatrix\imatrix.cpp：采集逐通道均方激活作为重要性权重</td></tr>
+<tr><td><b>llama.cpp PTQ 综述</b><br>Sparrenberg et al. DSAA 2025, DOI:10.1109/DSAA65442.2025.11247985</td><td>对 legacy / K-quants / IQ-quants 全族的系统梳理，GGUF 成为社区标准的过程</td><td>学术引用首选（覆盖本仓库整个量化体系）</td></tr>
+<tr><td><b>量化损害推理能力</b><br>Liu et al. 2025, arXiv:2504.04823</td><td>任务越难退化越大；4-bit 近乎无损、3-bit 开始冒险</td><td>量化档位选择的实验依据（对应 Q4_K_M 为平衡点的工程共识）</td></tr>
+<tr><td><b>GGUF 量化评测</b><br>Kurt 2026, arXiv:2601.14277</td><td>13 种 GGUF 格式统一评测：5-bit 可达/超 FP16 表现、GSM8K 对 3-bit 敏感</td><td>Q5_K_M 常为质量天花板的论据（与 Xeon 部署文档结论互证）</td></tr>
+<tr><td><b>MoE 量化行为</b><br>Zhao et al. 2025, arXiv:2505.02390</td><td>路由专家可重压、共享专家与注意力需保精度</td><td>llama-quant.cpp 按专家分块的处理逻辑</td></tr>
+</table>
+
+<h2>没有论文的工程原创（llama.cpp 真正的护城河）</h2>
+<table>
+<tr><th>机制</th><th>来源</th><th>说明</th></tr>
+<tr><td><b>K-quants 超块结构</b></td><td>ikawrakow, PR#1684 (2023)</td><td>QK_K=256 两级 scale 的混合精度块格式，纯工程设计，无对应论文</td></tr>
+<tr><td><b>imatrix 重要性矩阵</b></td><td>ikawrakow, PR#4861 (2024.01)</td><td>校准语料逐通道均方激活采集，思路近似 GPTQ 对角 Hessian 但轻量百倍</td></tr>
+<tr><td><b>GGUF 格式</b></td><td>项目原创 (2023.08)</td><td>元数据 + 张量目录 + 对齐数据 blob，为 mmap 零拷贝而生</td></tr>
+<tr><td><b>backend_sched 多后端调度</b></td><td>项目原创</td><td>按算子支持度切图 + event 流水线，同类设计仅在闭源引擎中出现</td></tr>
+<tr><td><b>CPU threadpool</b></td><td>项目原创</td><td>自旋+睡眠混合等待、chunk 原子抢占，为异构大小核而生</td></tr>
+<tr><td><b>llamafile sgemm</b></td><td>Justine Tunney (2024.03 合入)</td><td>x86/ARM 的 FP16/INT8 微内核优化 + Cosmopolitan 跨平台单文件方案</td></tr>
+</table>
+<p class="small">阅读建议：读代码前先看论文"贡献"列建立概念，再到"实现位置"列对照——这比直接啃源码快数倍。量化主题的论文与《转换量化指南》互为理论与操作的两个面。</p>
+</section>
+
+<section>
+<h1>生态位与选型含义</h1>
+<table>
+<tr><th>维度</th><th>llama.cpp</th><th>对照（vLLM / TensorRT-LLM）</th></tr>
+<tr><td>定位</td><td>本地/边缘/混合推理事实标准，零依赖单二进制</td><td>数据中心吞吐优先，Python 栈绑定</td></tr>
+<tr><td>强项</td><td>消费硬件 CPU、Apple Metal、量化格式生态(GGUF)、便携性</td><td>PagedAttention 类显存管理、高并发吞吐、CUDA 深度优化</td></tr>
+<tr><td>被谁依赖</td><td>Ollama / LM Studio / GPT4All 等几乎所有本地工具</td><td>云服务商推理 API</td></tr>
+<tr><td>对你的场景</td><td colspan="2">WTP184 车机（CPU/异构核 + 0.6B 级模型 + 嵌入式集成）恰好落在 llama.cpp 的主场——这也是全部既有文档围绕它展开的原因</td></tr>
+</table>
+<p class="small">版本注记：本工作区为 2026 年新版（tools\server 布局、KV 变体家族、稳定版发布线 v0.x）。网上 2023-2024 的教程（examples\server、GGML_TYPE 老枚举、三阶段任务模型）与本仓库已有结构性差异，以本地代码与本文档序列为准。</p>
+</section>
+</body></html>

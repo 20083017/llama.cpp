@@ -1,0 +1,85 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>llama.cpp 文档阅读顺序索引</title><style>body{font-family:"Microsoft YaHei",Arial,sans-serif;color:#142738;max-width:960px;margin:40px auto;line-height:1.7;padding:0 24px}h1,h2{color:black}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #d6e0e8}th{background:#e5edf4}a{color:#2166a1}.small{font-size:13px;color:#566776}.stage{display:inline-block;padding:2px 10px;border-radius:10px;color:#fff;font-size:12px;font-weight:bold}.s0{background:#556776}.s1{background:#1d4e79}.s2{background:#2d5a2d}.s3{background:#7a4d1d}.s4{background:#8a2d5a}.new{background:#b02a2a;color:#fff;font-size:11px;padding:1px 6px;border-radius:4px;margin-left:6px}</style></head><body>
+<h1>llama.cpp 文档阅读顺序索引</h1>
+<p class="small">更新日期：2026-10-26（第二次更新：插入背景层）。定位：把 8 份文档编排为"从诞生背景到源码原理、再到落地验证"的递进路径，方便快速浏览。所有文档位于 output\pdf\ 下，打开本文件即可跳转。</p>
+
+<h2>推荐阅读顺序（从"为什么诞生"到"怎么设计"到"怎么用"再到"验证过"）</h2>
+<table>
+<tr><th>#</th><th>文档</th><th>阶段</th><th>回答什么问题</th><th>浏览耗时</th></tr>
+<tr>
+  <td><b>1</b></td>
+  <td><a href="llama-cpp-origins-papers-guide.html">llama.cpp 起源、演进史与参考论文</a><span class="new">新增·背景</span></td>
+  <td><span class="stage s0">背景层</span></td>
+  <td>一个周末项目怎么长成行业标准？20+ 篇论文分别对应代码的哪个位置？哪些机制是没有论文的工程原创？</td>
+  <td>15 分钟</td>
+</tr>
+<tr>
+  <td><b>2</b></td>
+  <td><a href="llama-cpp-architecture-threading-guide.html">llama.cpp 源码框架与线程模型</a></td>
+  <td><span class="stage s1">原理层</span></td>
+  <td>三层架构怎么解耦？tensor/cgraph/backend_sched 怎么设计？线程池怎么同步？加速策略 P0/P1/P2 全景？</td>
+  <td>15 分钟</td>
+</tr>
+<tr>
+  <td><b>3</b></td>
+  <td><a href="llama-cpp-conversion-quantization-guide.html">转换与量化指南</a>（.pdf 同名）</td>
+  <td><span class="stage s2">工件层</span></td>
+  <td>怎么从 HF 权重得到高保真 GGUF？Q4_K_M/Q5_K_M/imatrix 怎么选怎么验？承接文档 2 的 P0 量化策略，与文档 1 的量化类论文互为理论与操作两面。</td>
+  <td>20 分钟</td>
+</tr>
+<tr>
+  <td><b>4</b></td>
+  <td><a href="llama-cpp-cpu-npu-performance-guide.html">CPU/NPU 性能指南</a>（.pdf 同名）</td>
+  <td><span class="stage s2">性能层</span></td>
+  <td>算力预算怎么摆平衡？CPU/NPU 路径怎么选？承接文档 2 的线程模型与 SIMD/混合 offload 章节。</td>
+  <td>15 分钟</td>
+</tr>
+<tr>
+  <td><b>5</b></td>
+  <td><a href="qwen3-0.6b-xeon-deployment.html">Qwen3-0.6B Xeon 部署</a>（.pdf 同名）</td>
+  <td><span class="stage s3">部署层</span></td>
+  <td>0.6B 级模型在 CPU 服务器上的真实数字（pp/tg、线程数、量化档位实测）。</td>
+  <td>10 分钟</td>
+</tr>
+<tr>
+  <td><b>6</b></td>
+  <td><a href="qwen3-native-cpp-deployment-guide.html">Qwen3 原生 C++ 集成指南</a>（.pdf 同名，配套 qwen3-native-kit\ 可复现包）</td>
+  <td><span class="stage s3">集成层</span></td>
+  <td>怎么用 llama.h API 内嵌到自己的 C++ 服务（对应 NLU 网关的端侧集成方案）。</td>
+  <td>20 分钟</td>
+</tr>
+<tr>
+  <td><b>7</b></td>
+  <td><a href="qwen3-checkpoint-3000-review.html">Qwen3 checkpoint 3000 步审查</a>（.pdf 同名）</td>
+  <td><span class="stage s4">验证层</span></td>
+  <td>训练中 checkpoint 的质量评估方法（对应微调 NLU 模型的中间产物把关）。</td>
+  <td>10 分钟</td>
+</tr>
+<tr>
+  <td><b>8</b></td>
+  <td>qwen3-nlu-replay\（request/rendered-prompt/expected/metadata-audit + replay-notes）</td>
+  <td><span class="stage s4">验证层</span></td>
+  <td>NLU 请求级回放：prompt 渲染、前缀缓存开关对照、期望输出 —— 与网关链路联调的夹具（fixtures）。</td>
+  <td>按需</td>
+</tr>
+</table>
+
+<h2>两种浏览模式</h2>
+<table>
+<tr><th>模式</th><th>路径</th><th>目的</th></tr>
+<tr><td><b>快速模式（45 分钟）</b></td><td>只读 2 → 3 的"推荐起点"段 → 5 的实测数字表</td><td>建立全局心智模型 + 拿到关键决策数字</td></tr>
+<tr><td><b>深度模式（按项目推进）</b></td><td>1 全文（背景+论文）→ 2/3/4 全文 → 6 动手跑 kit → 7/8 对照验证</td><td>能独立改代码、做集成、把关质量</td></tr>
+</table>
+
+<h2>文档间的依赖关系</h2>
+<pre>1 起源与论文（新）—— 论文"贡献"列 = 2/3 各主题的概念索引
+  │
+2 源码框架
+  ├─ P0 量化策略 ──────→ 3 转换量化（怎么落地工件；论文理论见 1 的量化表）
+  ├─ 线程模型/SIMD ────→ 4 CPU/NPU 性能（怎么压榨硬件）
+  │                        └→ 5 Xeon 实测（数字证据）
+  ├─ llama.h API ──────→ 6 原生 C++ 集成（怎么嵌进网关）
+  └─ KV/seq 复用 ──────→ 8 NLU 回放（多轮上下文验证）
+                           └→ 7 checkpoint 审查（训练侧质量）</pre>
+
+<p class="small">后续补充文档时请同步更新本索引：新增行填阶段标签与依赖关系，保持"背景 → 原理 → 工件 → 性能 → 部署 → 集成 → 验证"的递进逻辑。</p>
+</body></html>

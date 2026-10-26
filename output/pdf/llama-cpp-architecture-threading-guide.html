@@ -1,0 +1,178 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>llama.cpp 源码框架与线程模型</title><style>body{font-family:"Microsoft YaHei",Arial,sans-serif;color:#142738;max-width:960px;margin:40px auto;line-height:1.7;padding:0 24px}h1,h2{color:black}h1{line-height:1.2}section{margin:0 0 54px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #d6e0e8}th{background:#e5edf4}pre{background:#f1f4f7;padding:18px;overflow-x:auto;font-family:Consolas,monospace;font-size:13px}img,svg{width:100%}.small{font-size:13px;color:#566776}a{color:#2166a1}.p0{color:#b02a2a;font-weight:bold}.p1{color:#a06000;font-weight:bold}.p2{color:#3a6b35;font-weight:bold}@media print{section{break-before:page}body{max-width:none;margin:0}pre{white-space:pre-wrap}}</style></head><body>
+<section>
+<h1>llama.cpp 源码框架与线程模型</h1>
+<p class="h2">设计框架、复杂数据结构、线程模型与加速优化策略 —— 快速熟悉项目的地基文档</p>
+<p class="small">分析日期：2026-10-26，基于本地工作区 D:\project\llama.cpp（较新重构版）。注意：本版本与网上多数旧教程存在差异，server 已移至 tools\、KV cache 出现 DSA/DSV4/MSA/ISWA 变体、CPU 线程模型已删除 INIT/COMPUTE/FINALIZE 三阶段。本文所有结论均以本地代码为准（文件路径:行号可直接跳转）。</p>
+<p class="p"><b>本文定位：</b>现有文档序列（转换量化 - CPU/NPU 性能 - Qwen3 部署）覆盖的是"怎么用"，本文覆盖"它为什么这样设计、内部怎么跑"。建议作为整个文档序列的第一篇。</p>
+
+<h2>总体架构：三层解耦</h2>
+<svg viewBox="0 0 920 640" font-family="Microsoft YaHei, Arial" font-size="13">
+  <rect x="10" y="10" width="900" height="170" rx="8" fill="#eaf3fb" stroke="#7aa7d0"/>
+  <text x="30" y="38" font-size="15" font-weight="bold" fill="#1d4e79">应用层（tools\, examples\）</text>
+  <rect x="30" y="55" width="270" height="105" rx="6" fill="#ffffff" stroke="#7aa7d0"/>
+  <text x="45" y="80" font-weight="bold">llama-server</text>
+  <text x="45" y="102">continuous batching</text><text x="45" y="122">多 slot 并发 / 投机解码</text><text x="45" y="142" fill="#566776">tools\server\</text>
+  <rect x="325" y="55" width="270" height="105" rx="6" fill="#ffffff" stroke="#7aa7d0"/>
+  <text x="340" y="80" font-weight="bold">llama-cli / bench</text>
+  <text x="340" y="102">交互推理 / 性能基准</text><text x="340" y="122">pp(吞) 与 tg(延) 分开测</text><text x="340" y="142" fill="#566776">examples\, tools\</text>
+  <rect x="620" y="55" width="270" height="105" rx="6" fill="#ffffff" stroke="#7aa7d0"/>
+  <text x="635" y="80" font-weight="bold">imatrix / quantize</text>
+  <text x="635" y="102">校准与离线量化工具链</text><text x="635" y="122">→ 衔接《转换量化指南》</text><text x="635" y="142" fill="#566776">tools\imatrix\</text>
+  <rect x="10" y="210" width="900" height="180" rx="8" fill="#eef7ee" stroke="#7fb07f"/>
+  <text x="30" y="238" font-size="15" font-weight="bold" fill="#2d5a2d">llama 库层（src\）—— 不懂硬件</text>
+  <rect x="30" y="255" width="270" height="115" rx="6" fill="#ffffff" stroke="#7fb07f"/>
+  <text x="45" y="280" font-weight="bold">llama_context</text>
+  <text x="45" y="302">decode / encode 入口</text><text x="45" y="322">持 sched + threadpool</text><text x="45" y="342" fill="#566776">llama-context.cpp</text>
+  <rect x="325" y="255" width="270" height="115" rx="6" fill="#ffffff" stroke="#7fb07f"/>
+  <text x="340" y="280" font-weight="bold">llama_model + hparams</text>
+  <text x="340" y="302">60+ 架构统一描述</text><text x="340" y="322">权重张量 + 逐层 llama_layer</text><text x="340" y="342" fill="#566776">llama-model.cpp / models\</text>
+  <rect x="620" y="255" width="270" height="115" rx="6" fill="#ffffff" stroke="#7fb07f"/>
+  <text x="635" y="280" font-weight="bold">llama_memory 抽象</text>
+  <text x="635" y="302">KV cache 家族</text><text x="635" y="322">dsa / dsv4 / msa / iswa</text><text x="635" y="342" fill="#566776">llama-kv-cache*.cpp</text>
+  <rect x="10" y="420" width="900" height="200" rx="8" fill="#f8f0e8" stroke="#c9a06a"/>
+  <text x="30" y="448" font-size="15" font-weight="bold" fill="#7a4d1d">ggml 张量库层（ggml\）—— 不懂 Transformer</text>
+  <rect x="30" y="465" width="270" height="135" rx="6" fill="#ffffff" stroke="#c9a06a"/>
+  <text x="45" y="490" font-weight="bold">ggml_backend_sched</text>
+  <text x="45" y="512">计算图按后端切 split</text><text x="45" y="532">跨后端插拷贝 + event 流水</text><text x="45" y="552" fill="#566776">ggml-backend.cpp:926</text>
+  <rect x="325" y="465" width="270" height="135" rx="6" fill="#ffffff" stroke="#c9a06a"/>
+  <text x="340" y="490" font-weight="bold">backend 家族</text>
+  <text x="340" y="512">CPU / CUDA / Metal /</text><text x="340" y="532">Vulkan / SYCL / RPC...</text><text x="340" y="552" fill="#566776">统一 iface 函数指针</text>
+  <rect x="620" y="465" width="270" height="135" rx="6" fill="#ffffff" stroke="#c9a06a"/>
+  <text x="635" y="490" font-weight="bold">ggml_cgraph + threadpool</text>
+  <text x="635" y="512">张量引用链 → 拓扑序</text><text x="635" y="532">CPU barrier + chunk 抢占</text><text x="635" y="552" fill="#566776">ggml.c / ggml-cpu.c</text>
+  <text x="460" y="200" font-size="16" fill="#566776">▼ 只依赖 llama.h 公开 API</text>
+  <text x="460" y="410" font-size="16" fill="#566776">▼ 只依赖 ggml.h / ggml-backend.h</text>
+</svg>
+<p class="small">图 1. 三层架构。设计哲学：无依赖纯 C/C++；一切计算表达为张量图；按算子支持度动态切分后端。llama 层与 ggml 层互不知晓对方领域细节，这是整个项目可维护性的根基。</p>
+</section>
+
+<section>
+<h1>复杂数据结构与实现原理</h1>
+<h2>ggml 层：五件套</h2>
+<table>
+<tr><th>结构</th><th>位置</th><th>核心设计点</th></tr>
+<tr><td><b>ggml_tensor</b></td><td>ggml\include\ggml.h:686</td><td>ne[4]（各维元素数）+ nb[4]（字节步长，nb[i]=nb[i-1]*ne[i-1]）构成<b>非连续内存的万能张量</b>：转置/切 view 零拷贝，只改 ne/nb；op + op_params + src[10] 前驱指针 —— 张量即图节点；view_src/view_offs 支持视图共享底层 buffer。</td></tr>
+<tr><td><b>ggml_context</b></td><td>ggml\src\ggml.c:983</td><td><b>arena 内存池 + bump 分配</b>：ggml_object 以链表从池头部切分，建图期零 malloc；反复建图只需重置偏移，这是推理服务能长期稳定运行的前提。</td></tr>
+<tr><td><b>ggml_cgraph</b></td><td>ggml\src\ggml-impl.h:341</td><td>ggml_visit_parents 深度优先 + visited_hash_set 去重，把张量前驱引用链拓扑排序为 nodes[]；PARAM 与外部输入进 leafs[]；执行序支持 LEFT_TO_RIGHT / RIGHT_TO_LEFT（为梯度/反向预留）。</td></tr>
+<tr><td><b>ggml_backend / buffer</b></td><td>ggml\src\ggml-backend-impl.h</td><td>backend = {guid, iface(函数指针表), device, context}：graph_compute / set_tensor_async / synchronize / event_record 全部经由接口；buffer 负责各设备显存/内存的实际持有。新后端只需实现一张函数表。</td></tr>
+<tr><td><b>ggml_backend_sched</b></td><td>ggml\src\ggml-backend.cpp:926</td><td><b>全项目调度中枢</b>：按 supports_op + 权重 buffer 归属把一张图切成 splits[]，跨后端边界自动插拷贝节点，双缓冲（n_copies/cur_copy）+ events[backend][copy] 让拷贝与计算重叠。</td></tr>
+</table>
+
+<h2>llama 层：模型与上下文</h2>
+<table>
+<tr><th>结构</th><th>位置</th><th>核心设计点</th></tr>
+<tr><td><b>llama_hparams</b></td><td>src\llama-hparams.h:59</td><td>n_head_arr[] / n_head_kv_arr[] / n_ff_arr[] <b>按层存数组</b>（应对混合层模型如 DeepSeek V 系列）；覆盖 SWA / MLA / RoPE-YaRN / SSM / RWKV 全部超参族。</td></tr>
+<tr><td><b>llama_model + llama_layer</b></td><td>src\llama-model.h:712 / :264</td><td>每层一个 llama_layer 结构体，收集该层全部权重指针（attn_norm/wq/wk...）；权重从 GGUF 按名映射加载，i_gpu_start 决定哪些层驻留 GPU。</td></tr>
+<tr><td><b>llama_context</b></td><td>src\llama-context.h:45</td><td>聚合 cparams / memory / moe_cache / sched / 两个 threadpool / balloc；核心方法 process_ubatch（:1524）+ graph_compute（:2749）；支持计算图复用（同形状 batch 跳过 build）。</td></tr>
+<tr><td><b>llama_kv_cells</b></td><td>src\llama-kv-cells.h:36</td><td>KV cache 的<b>逻辑槽位表</b>：pos[] + seq[]（bitset&lt;64&gt; 多序列标记）+ used；slot 分配返回 slot_info{strm, idxs}；seq_rm/cp/keep/add 四操作 = prompt 复用与上下文管理的原子操作集。</td></tr>
+<tr><td><b>llama_graph</b></td><td>src\llama-graph.h</td><td>llm_graph_context 持有 ctx0/gf 与维度缓存，60+ 架构在 src\models\ 下各自的 graph 构造器中逐层调 build_qkv / build_attn 并接 rope/flash-attn。</td></tr>
+</table>
+
+<h2>GGUF 与加载流程</h2>
+<p class="p">GGUF = 魔数 + 版本 + KV 元数据（超参）+ 张量目录（名/维度/dtype/offset）+ 数据 blob，32 字节对齐。加载链：<b>读 gguf → init_hparams（KV 注入超参）→ create_tensor（按目标后端 buft 建张量，支持 LAZY）→ init_mappings（mmap 零拷贝映射）→ load_all_data</b>（src\llama-model-loader.cpp:262）。mmap 使权重不进驻内存、按缺页加载，冷启动与内存占用都受益（src\llama-mmap.cpp）。</p>
+</section>
+
+<section>
+<h1>线程模型与计算执行</h1>
+<h2>一次 decode 的完整旅程</h2>
+<svg viewBox="0 0 920 560" font-family="Microsoft YaHei, Arial" font-size="13">
+  <rect x="150" y="10" width="160" height="36" rx="6" fill="#e5edf4" stroke="#7aa7d0"/><text x="230" y="33" text-anchor="middle" font-weight="bold">主线程 llama_decode</text>
+  <rect x="380" y="10" width="160" height="36" rx="6" fill="#eef7ee" stroke="#7fb07f"/><text x="460" y="33" text-anchor="middle" font-weight="bold">backend_sched</text>
+  <rect x="610" y="10" width="140" height="36" rx="6" fill="#f8f0e8" stroke="#c9a06a"/><text x="680" y="26" text-anchor="middle" font-weight="bold">GPU 后端</text><text x="680" y="42" text-anchor="middle" fill="#566776">(CUDA/Metal stream)</text>
+  <rect x="30" y="10" width="100" height="36" rx="6" fill="#f8f0e8" stroke="#c9a06a"/><text x="80" y="33" text-anchor="middle" font-weight="bold">CPU 线程池</text>
+  <line x1="230" y1="46" x2="230" y2="540" stroke="#7aa7d0" stroke-dasharray="4,4"/><line x1="460" y1="46" x2="460" y2="540" stroke="#7fb07f" stroke-dasharray="4,4"/><line x1="680" y1="46" x2="680" y2="540" stroke="#c9a06a" stroke-dasharray="4,4"/><line x1="80" y1="46" x2="80" y2="540" stroke="#c9a06a" stroke-dasharray="4,4"/>
+  <polygon points="455,80 465,80 460,92" fill="#7fb07f"/><line x1="230" y1="80" x2="460" y2="80" stroke="#7fb07f"/>
+  <text x="300" y="74">1. batch 拆 ubatch → 建图(或复用) → sched_graph_compute_async</text>
+  <polygon points="675,110 685,110 680,122" fill="#c9a06a"/><line x1="460" y1="110" x2="680" y2="110" stroke="#c9a06a"/>
+  <text x="480" y="104">2. split_graph 切片 → split1 提交 GPU kernel（异步，不等待）</text>
+  <polygon points="675,150 685,150 680,162" fill="#c9a06a"/><line x1="460" y1="150" x2="680" y2="150" stroke="#c9a06a" stroke-dasharray="6,3"/>
+  <text x="480" y="144">3. 拷贝 split1→split2 边界张量（双缓冲 + event，与 GPU 计算重叠）</text>
+  <rect x="610" y="130" width="140" height="26" rx="4" fill="#fdf3e3" stroke="#c9a06a"/><text x="680" y="148" text-anchor="middle">kernel 执行中...</text>
+  <polygon points="75,190 85,190 80,202" fill="#c9a06a"/><line x1="460" y1="190" x2="80" y2="190" stroke="#c9a06a"/>
+  <text x="160" y="184">4. split2 (CPU 部分) kickoff：n_graph++ + cond_broadcast</text>
+  <rect x="20" y="210" width="120" height="120" rx="4" fill="#fdf3e3" stroke="#c9a06a"/>
+  <text x="80" y="232" text-anchor="middle">N 个 worker：</text>
+  <text x="80" y="252" text-anchor="middle">遍历 nodes[]</text>
+  <text x="80" y="272" text-anchor="middle">mul_mat 按 chunk</text>
+  <text x="80" y="292" text-anchor="middle">动态抢占</text>
+  <text x="80" y="312" text-anchor="middle">节点完 → barrier</text>
+  <line x1="230" y1="360" x2="460" y2="360" stroke="#7aa7d0"/><polygon points="455,355 465,355 460,365" fill="#7aa7d0"/>
+  <text x="270" y="354">5. 各 split 完成 → event_synchronize 汇合</text>
+  <line x1="460" y1="400" x2="230" y2="400" stroke="#7aa7d0"/><polygon points="235,395 245,395 240,407" fill="#7aa7d0"/>
+  <text x="270" y="394" fill="#3a6b35">6. logits 就绪，返回采样（同步、单线程链式）</text>
+  <rect x="150" y="430" width="540" height="100" rx="6" fill="#f1f4f7" stroke="#d6e0e8"/>
+  <text x="175" y="458" font-weight="bold">CPU barrier 原理（ggml_barrier, ggml-cpu.c:576）：</text>
+  <text x="175" y="480">atomic_fetch_add(n_barrier) → 自旋等待 n_barrier_passed 翻转</text>
+  <text x="175" y="500">worker 等待 = 先自旋 poll（_mm_pause/yield）再 cond_wait 睡眠，兼顾低延迟与低功耗</text>
+  <text x="175" y="520" fill="#b02a2a">本版本已删除 INIT/COMPUTE/FINALIZE 三阶段任务类型（旧教程均已过时）</text>
+</svg>
+<p class="small">图 2. decode 执行时序。注意两个重叠：① 跨 split 的拷贝与前序 GPU 计算 event 流水重叠；② CPU 与 GPU 各自跑各自 split（ggml-backend.cpp:1865 compute_splits）。</p>
+
+<h2>线程模型速查表</h2>
+<table>
+<tr><th>机制</th><th>位置</th><th>要点</th></tr>
+<tr><td><b>CPU 线程池</b></td><td>ggml\src\ggml-cpu\ggml-cpu.c:481</td><td>threadpool = {mutex, cond, cgraph, cplan, atomic n_graph/n_barrier, stop/pause, workers[]}；每 worker 一个 ggml_compute_state；API：ggml_threadpool_new / pause / resume / free。</td></tr>
+<tr><td><b>动态负载均衡</b></td><td>ggml-cpu.c mul_mat :1379</td><td>GEMM 切 chunk，各线程 atomic_fetch_add(current_chunk) 抢占式领任务 —— 消除快慢核（大小核）不均；flash_attn 分 chunk + barrier + partial 归约（ops.cpp:9614）。</td></tr>
+<tr><td><b>双线程池</b></td><td>src\llama-context.cpp:2752</td><td>生成用 n_threads、批处理用 n_threads_batch，两个独立 threadpool，避免互相干扰。</td></tr>
+<tr><td><b>GPU 异步</b></td><td>ggml-cuda.cu:2761</td><td>kernel 提交 stream 即返回；synchronize = cudaStreamSynchronize；跨设备拷贝用 cudaEventRecord + cudaStreamWaitEvent。</td></tr>
+<tr><td><b>server 线程</b></td><td>tools\server\</td><td>HTTP 线程池（httplib，每 listener 一线程）+ server_queue::start_loop 主循环（server-queue.cpp:278，condition_tasks.wait）+ update_slots（server-context.cpp:3454）拼公共 batch —— continuous batching 的心脏。</td></tr>
+<tr><td><b>采样</b></td><td>src\llama-sampler.cpp:382</td><td>链式同步单线程；后端已出 token 时跳过 CPU 采样（:895）。</td></tr>
+</table>
+
+<h2>关键调用链（建议按此顺序读源码）</h2>
+<pre>llama_decode                 llama-context.cpp:4642
+ └─ llama_context::decode     :1838   拆 ubatch
+     └─ process_ubatch        :1524   图复用判定 / model.build_graph / set_inputs
+         └─ graph_compute     :2749   选线程池 → sched_graph_compute_async
+             └─ ggml_backend_sched::compute_splits  ggml-backend.cpp:1865
+                 └─ 逐 split: event 等待 → 拷贝 → backend graph_compute_async</pre>
+</section>
+
+<section>
+<h1>加速策略、优化策略与优化方案</h1>
+<p class="p">优化选型的根本逻辑：<b>量化换内存带宽</b>（decode 是 memory-bound，权重每 token 都要读一遍，这是量化的第一收益）→ <b>batching 换吞吐</b>（prefill 是 compute-bound，多序列拼 batch 摊薄权重读取）→ <b>投机/流水线换延迟</b>。</p>
+<table>
+<tr><th>级别</th><th>策略</th><th>机制与位置</th><th>适用场景</th></tr>
+<tr><td class="p0">P0</td><td>权重量化</td><td>1.5~8bit 全族（ggml.h:390-433）。K-quants 超块：QK_K=256，两级 scale（超块 d/dmin + 子块 6bit scale），权重 x = a*q + b；Q4_K_M 是质量/速度平衡点；IQ 低比特系列强制需要 imatrix 重要性矩阵（tools\imatrix）。</td><td>所有场景的地基，详见《转换量化指南》</td></tr>
+<tr><td class="p0">P0</td><td>mmap 零拷贝加载</td><td>llama-mmap.cpp：权重映射文件按缺页读取 + llama_prefetch，冷启动与 RSS 双降。</td><td>大模型 / 多实例常驻</td></tr>
+<tr><td class="p0">P0</td><td>prompt 复用</td><td>seq_id 体系 + get_common_prefix 最长公共前缀续算（server-common.cpp:818）：多轮对话只 prefill 增量部分。</td><td>NLU 多轮会话（与网关上下文设计同构）</td></tr>
+<tr><td class="p1">P1</td><td>continuous batching</td><td>--parallel 多 slot，update_slots 每轮拼公共 batch；ubatch 分片（split_simple/equal/seq, llama-batch.cpp）控制单图规模。</td><td>并发服务吞吐</td></tr>
+<tr><td class="p1">P1</td><td>Flash attention</td><td>ggml_flash_attn_ext（ggml.c:5550）不物化注意力矩阵；CUDA 三套模板（tile/mma/vec）；KV 量化(V→Q8/Q4)强制要求开启 FA（llama-context.cpp:4081）。</td><td>长上下文必备</td></tr>
+<tr><td class="p1">P1</td><td>投机解码</td><td>--spec-draft-model + --spec-type（simple/eagle3/mtp/dflash/ngram），draft 一次猜 N 个 token，主模型一次验证。</td><td>单流延迟敏感</td></tr>
+<tr><td class="p1">P1</td><td>CPU/GPU 混合</td><td>--n-gpu-layers：i_gpu_start = n_layer_all+1-n_gpu_layers（llama-model.cpp:1600），超出 VRAM 的层留 CPU，sched 自动切分。</td><td>模型略超显存</td></tr>
+<tr><td class="p2">P2</td><td>算子级 SIMD</td><td>ggml-cpu\arch\ 下 x86 AVX/AMX、ARM NEON、RISC-V RVV 各自实现 vec_dot；repack 重排 GEMM 布局；llamafile sgemm。</td><td>CPU 推理</td></tr>
+<tr><td class="p2">P2</td><td>在线量化激活</td><td>GGML_PREC_Q8/Q4 tag 允许后端把激活也在线量化，GEMM 走量化 fast path。</td><td>带宽极限场景</td></tr>
+<tr><td class="p2">P2</td><td>KV defrag / K-shift</td><td>碎片超阈值时重排槽位（llama-kv-cache.cpp:771）；K-shift 用 RoPE 平移实现 context shift（:877）。</td><td>长会话防碎片</td></tr>
+</table>
+
+<h2>KV cache 变体家族（本仓库新特性）</h2>
+<table>
+<tr><th>变体</th><th>位置</th><th>一句话定位</th></tr>
+<tr><td>基础版</td><td>llama-kv-cache.cpp</td><td>标准 K/V 槽位 + seq_id 管理 + unified 单流共享（-kvu，n_stream=1）。</td></tr>
+<tr><td>DSA</td><td>llama-kv-cache-dsa.cpp</td><td>DeepSeek 稀疏注意力：双 cache（模型 K + lightning indexer K）。</td></tr>
+<tr><td>DSV4</td><td>llama-kv-cache-dsv4.cpp</td><td>raw/SWA cache + 压缩 K-only 块缓存，按 ratio 状态机压缩。</td></tr>
+<tr><td>MSA</td><td>llama-kv-cache-msa.cpp</td><td>K/V + 单 key 头 indexer cache，做 block 选择。</td></tr>
+<tr><td>ISWA</td><td>llama-kv-cache-iswa.cpp</td><td>交错滑窗：非 SWA 层与 SWA 层各用一个 cache 实例。</td></tr>
+</table>
+<p class="small">记忆抽象接口 llama_memory_i（llama-memory.h:73）是统一入口：init_batch / next / seq_rm / seq_cp / seq_keep / seq_add / state_write —— 上层代码不感知具体变体。</p>
+</section>
+
+<section>
+<h1>与 WTP184 / 车机 NLU 工作的映射</h1>
+<table>
+<tr><th>llama.cpp 机制</th><th>对应你网关侧的问题</th><th>可借鉴点</th></tr>
+<tr><td>KV cache seq_id + common prefix 复用</td><td>多轮会话历史上下文持久化</td><td>seq_rm/cp/keep/add 就是"上下文管理的原子操作集"，幂等性由槽位 used 标记保证</td></tr>
+<tr><td>continuous batching slot 状态机</td><td>同会话并发/幂等控制</td><td>slot 独占 seq_id，请求按 yield_to_queue 调度，无锁竞争</td></tr>
+<tr><td>CPU chunk 动态抢占</td><td>车机多核（大小核）调度</td><td>atomic_fetch_add 抢占式任务切分，天然适配异构核</td></tr>
+<tr><td>ubatch 分片</td><td>请求流控与背压</td><td>split_simple/equal/seq 三种策略对应不同公平性取舍</td></tr>
+</table>
+
+<h1>源码阅读检查清单</h1>
+<pre>1. ggml\include\ggml.h        tensor 定义 + 量化类型枚举     (半天)
+2. ggml\src\ggml-backend.cpp  sched 切图与 compute_splits    (半天)
+3. src\llama-context.cpp      decode → graph_compute 链      (一天)
+4. src\llama-kv-cache.cpp     槽位分配 + seq 操作            (一天)
+5. tools\server\server-context.cpp  update_slots 主循环      (半天)</pre>
+<p class="small">读完以上 5 处即可声称"熟悉 llama.cpp 主干"。后续按需下钻：models\ 下具体架构的 graph 构造、ggml-cpu 的算子实现、量化编解码器。</p>
+</section>
+</body></html>
