@@ -1,0 +1,137 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>llama.cpp 评测与退化定位指南</title><style>body{font-family:"Microsoft YaHei",Arial,sans-serif;color:#142738;max-width:960px;margin:40px auto;line-height:1.7;padding:0 24px}h1,h2{color:black}h1{line-height:1.2}section{margin:0 0 54px}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #d6e0e8}th{background:#e5edf4}pre{background:#f1f4f7;padding:18px;overflow-x:auto;font-family:Consolas,monospace;font-size:13px}img,svg{width:100%}.small{font-size:13px;color:#566776}a{color:#2166a1}.p0{color:#b02a2a;font-weight:bold}.p1{color:#a06000;font-weight:bold}.p2{color:#3a6b35;font-weight:bold}@media print{section{break-before:page}body{max-width:none;margin:0}pre{white-space:pre-wrap}}</style></head><body>
+<section>
+<h1>llama.cpp 评测与退化定位指南</h1>
+<p class="h2">性能评测（roofline / 时延 / 上下文窗口）与量化退化根因定位 —— 性能与部署文档之间的诊断层</p>
+<p class="small">整理日期：2026-10-27。所有 API/工具均已在本地工作区 D:\project\llama.cpp 核实存在（标注 文件:行号）。外部工具仅列 Windows 车机/服务器场景常用项。</p>
+
+<h2>评测工具总览矩阵</h2>
+<table>
+<tr><th>评测维度</th><th>仓内工具（优先）</th><th>外部工具（补充）</th></tr>
+<tr><td><b>吞吐 / 时延</b></td><td>llama-bench（tools\llama-bench，-p/-n/-d/-r/-o json）；batched-bench（并发批量）；tools\server\bench\bench.py（HTTP 端压测）</td><td>见 roofline 一节的硬件计数器工具</td></tr>
+<tr><td><b>资源占用</b></td><td>fit-params（tools\fit-params：按剩余内存自动适配 ctx/batch 参数）；server 的 /metrics（Prometheus 格式）；context 参数 no_perf 可关内部计时</td><td>Intel MLC / STREAM（峰值带宽）；VTune / uProf / perf / LIKWID（硬件计数器）；Nsight Systems+Compute（CUDA）</td></tr>
+<tr><td><b>上下文窗口</b></td><td>llama-bench -d 深度扫描；perplexity -c；/metrics 的 kv_cache_usage_ratio</td><td>自建长对话回放（qwen3-nlu-replay 夹具可扩展）</td></tr>
+<tr><td><b>量化质量退化</b></td><td>perplexity（含 --kl-divergence + --logits-file）；tools\imatrix（敏感度数据源）；llama-quantize --tensor-type 分组 A/B；gguf_dump.py / gguf_hash.py（工件核对）</td><td>任务级评测自建（NLU golden set）</td></tr>
+<tr><td><b>逐算子性能</b></td><td>ggml_backend_sched_set_eval_callback（ggml-backend.h:373，逐节点计时钩子）；copy_callback（:376，看跨后端拷贝开销）</td><td>VTune 热点函数视图</td></tr>
+<tr><td><b>构建耗时</b></td><td colspan="2">docs\build-profiling.md（ClangBuildAnalyzer + scripts\build-profile.ps1）—— 编译期问题用这个，别和推理评测混淆</td></tr>
+</table>
+</section>
+
+<section>
+<h1>一、Roofline：资源占用该怎么测</h1>
+<p class="p"><b>先定性再定量</b>：decode 阶段是 memory-bound（每 token 读全部权重一次），prefill 是 compute-bound。所以 CPU 上做 roofline 的第一目标是回答"我的 tg 速度离内存带宽极限还有多远"，而不是算 FLOPs。</p>
+<h2>DIY roofline 四步法（无需硬件计数器）</h2>
+<pre># 1. 实测 token 速度（json 输出便于入库）
+llama-bench -m model-Q4_K_M.gguf -p 0 -n 128 -r 5 -t 8 -o json
+
+# 2. 算有效带宽：GB/s ~= 模型权重字节数 / tg 每秒
+#    例: Q4_K_M 0.6B 模型约 0.4 GB, tg 60 t/s -> 24 GB/s 有效带宽
+
+# 3. 测机器峰值带宽（一次即可，换机器才重测）
+#    Intel MLC / STREAM / AIDA64 均可
+
+# 4. 带宽利用率 = 有效 / 峰值
+#    >= 80%: 已到带宽墙, 只能降精度或减 KV
+#    < 60%: 有免费午餐, 查线程数/-t、NUMA、量化档位、热节流</pre>
+<h2>要真正画 roofline 图（算术强度 = FLOPs/Byte）</h2>
+<table>
+<tr><th>平台</th><th>工具</th><th>取什么计数器</th></tr>
+<tr><td>Linux</td><td>perf / LIKWID</td><td>LIKWID 的 FLOPS_* + MEM 组可直接输出 roofline 点；perf 取 cache-misses、带宽事件</td></tr>
+<tr><td>Windows/x86</td><td>Intel VTune（HPC Characterization）</td><td>Memory Access 分析给带宽利用率和 stalls；VTune 可直接显示 roofline 视图</td></tr>
+<tr><td>Windows/AMD</td><td>uProf</td><td>对应 AMC/带宽计数器</td></tr>
+<tr><td>NVIDIA GPU</td><td>Nsight Compute</td><td>每个 kernel 的 achieved vs peak；Nsight Systems 看时间线空隙</td></tr>
+</table>
+<p class="small">注意：llama.cpp 官方没有内置 roofline 工具——不要去找不存在的命令。仓内最近观测点是 llama_perf_context（include\llama.h:1680，见下节）。</p>
+</section>
+
+<section>
+<h1>二、Time cost：推理时间的三级观测</h1>
+<table>
+<tr><th>级别</th><th>手段</th><th>位置</th><th>粒度</th></tr>
+<tr><td><b>L1 基准</b></td><td>llama-bench：pp 与 tg 分开、-r 重复取均值、-o json 入库对比</td><td>tools\llama-bench.cpp</td><td>每秒 token</td></tr>
+<tr><td><b>L2 服务</b></td><td>llama-server --verbose：每请求输出 prompt eval / eval / cache 命中三个时延；/metrics 暴露 kv_cache_usage_ratio、requests_processing/deferred（Prometheus 直接抓）</td><td>tools\server\server-http.cpp:61</td><td>每请求 / 每槽位</td></tr>
+<tr><td><b>L3 进程内</b></td><td>llama_perf_context(ctx) 取累计 pp/tg 时间与 token 数，print/reset 配套；params.no_perf=true 可在生产关闭以省开销</td><td>include\llama.h:1680-1707</td><td>每次 decode 聚合</td></tr>
+<tr><td><b>L4 算子级</b></td><td>ggml_backend_sched_set_eval_callback：每个图节点回调一次，可打点名称+耗时；copy_callback 看跨后端拷贝。仅诊断模式用（有回调开销）</td><td>ggml-backend.h:373/376</td><td>每个算子</td></tr>
+</table>
+<p class="p">集成侧最小改动方案：<b>llama_log_set(callback, user_data)</b>（llama.h:1671）接管全部内部日志（含 timing 输出），转发到你的网关日志管道即可获得 L2/L3 级可见性，业务零侵入。</p>
+</section>
+
+<section>
+<h1>三、Context window：上下文窗口评测</h1>
+<pre># 深度衰减扫描: 看长上下文下 tg 速度掉多少 (-d 为既有 KV 深度)
+llama-bench -m model.gguf -p 0 -n 64 -d 0,512,2048,8192 -fa on
+
+# 长窗困惑度 (注意 n_ctx >= 语料窗口)
+llama-perplexity -m model.gguf -f longtext.txt -c 8192
+
+# KV 占用率持续观测 (server)
+curl http://localhost:8080/metrics | findstr kv_cache</pre>
+<table>
+<tr><th>关注点</th><th>判定标准</th></tr>
+<tr><td>tg 衰减 vs 深度</td><td>FA 开启后衰减应平缓；陡降说明 KV 未量化或未走 FA fast path</td></tr>
+<tr><td>kv_cache_usage_ratio</td><td>持续 &gt; 85% 会触发 defrag/K-shift（有停顿尖刺）；调 ctx 或开 -kvu 统一池</td></tr>
+<tr><td>前缀复用率</td><td>多轮 NLU 会话的核心收益指标：cache_prompt=true 时 verbose 日志的 n_prompt 与 prompt 长度之差即命中量</td></tr>
+<tr><td>数值注意</td><td>server README:500 明示——cache_prompt 下不同 batch size 的 logits 不保证逐位一致（pp 与 tg 的数值路径不同），对确定性敏感的 NLU 决策要评估该影响</td></tr>
+</table>
+</section>
+
+<section>
+<h1>四、量化退化定位五步法（核心）</h1>
+<svg viewBox="0 0 920 300" font-family="Microsoft YaHei, Arial" font-size="13">
+  <rect x="10" y="30" width="160" height="60" rx="8" fill="#eaf3fb" stroke="#7aa7d0"/><text x="90" y="55" text-anchor="middle" font-weight="bold">Step 1 基线</text><text x="90" y="75" text-anchor="middle" fill="#566776">F16 参考 ppl + 存 logits</text>
+  <rect x="190" y="30" width="160" height="60" rx="8" fill="#eaf3fb" stroke="#7aa7d0"/><text x="270" y="55" text-anchor="middle" font-weight="bold">Step 2 粗判</text><text x="270" y="75" text-anchor="middle" fill="#566776">量化版 KL/ppl 差 &gt; 阈值?</text>
+  <rect x="370" y="30" width="160" height="60" rx="8" fill="#eef7ee" stroke="#7fb07f"/><text x="450" y="55" text-anchor="middle" font-weight="bold">Step 3 分组 A/B</text><text x="450" y="75" text-anchor="middle" fill="#566776">--tensor-type 逐组升精度</text>
+  <rect x="550" y="30" width="160" height="60" rx="8" fill="#f8f0e8" stroke="#c9a06a"/><text x="630" y="55" text-anchor="middle" font-weight="bold">Step 4 imatrix</text><text x="630" y="75" text-anchor="middle" fill="#566776">敏感层/通道佐证</text>
+  <rect x="730" y="30" width="180" height="60" rx="8" fill="#f9eef2" stroke="#c07a94"/><text x="820" y="55" text-anchor="middle" font-weight="bold">Step 5 张量级确认</text><text x="820" y="75" text-anchor="middle" fill="#566776">逐节点数值对比</text>
+  <line x1="170" y1="60" x2="190" y2="60" stroke="#566776"/><line x1="350" y1="60" x2="370" y2="60" stroke="#566776"/><line x1="530" y1="60" x2="550" y2="60" stroke="#566776"/><line x1="710" y1="60" x2="730" y2="60" stroke="#566776"/>
+  <text x="460" y="140" text-anchor="middle" fill="#b02a2a" font-weight="bold">Step 2 若差异可忽略 -> 退化根因不在量化, 转查 prompt 模板/采样参数/top-k</text>
+  <text x="460" y="170" text-anchor="middle" fill="#566776">即"先证伪再深挖", 避免在错误方向上烧 GPU 时</text>
+</svg>
+<pre># Step 1: 参考模型存 logits (一次性, 文件较大注意磁盘)
+llama-perplexity -m model-f16.gguf -f eval.txt -c 512 --logits-file base-logits.bin
+
+# Step 2: 量化模型对同一语料算 KL 散度 (读取上一步文件作基准)
+llama-perplexity -m model-Q4_K_M.gguf -f eval.txt -c 512 \
+  --kl-divergence --logits-file base-logits.bin
+# 输出 ppl 差 + KL 散度 (perplexity.cpp:1675)
+
+# Step 3: 分组升精度二分 (例: 只把 wv/w2 升到 Q6_K, 其余仍 Q4)
+llama-quantize --tensor-type "blk\..*\.attn_v\.weight=Q6_K" \
+               --tensor-type "blk\..*\.ffn_down\.weight=Q6_K" \
+  model-f16.gguf model-mixtest.gguf Q4_K_M
+# ppl/KL 明显回升 -> 敏感组命中; 逐组收缩范围直到单层单张量
+
+# Step 4: 用校准数据重跑 imatrix, 观察逐层重要性行的分布陡峭度
+llama-imatrix -m model-f16.gguf -f calib.txt -o imatrix.gguf
+
+# Step 5: 工件核对 (确认混合 dtype 真的生效) + 数值级对比
+python -m gguf.scripts.gguf_dump model-mixtest.gguf   # 逐张量 dtype 清单
+python -m gguf.scripts.gguf_hash model-mixtest.gguf   # 工件指纹入库</pre>
+<h2>常见根因速查表</h2>
+<table>
+<tr><th>症状</th><th>最可能根因</th><th>处置</th></tr>
+<tr><td>ppl 暴涨但 KL 分布均匀</td><td>输出层/词嵌入被压到低精度</td><td>--output-tensor-type/--token-embedding-type 保持 Q8/F16</td></tr>
+<tr><td>推理任务尚可、数学/多步推理崩</td><td>3-bit 档位固有风险（Liu 2025: 难任务退化 4 倍）</td><td>回 Q4_K_M 起步，敏感组升 Q6</td></tr>
+<tr><td>MoE 模型专家路由异常</td><td>共享专家/路由器被过度压缩（Zhao 2025）</td><td>专家可重压、共享组件保精度</td></tr>
+<tr><td>imatrix 版比裸量化还差</td><td>校准语料与业务分布不匹配</td><td>用 NLU 真实语料重标定（衔接转换量化指南）</td></tr>
+<tr><td>仅长上下文时质量下滑</td><td>KV 量化 Q4/Q8 未开 FA 或 K 头维不整除</td><td>-fa on；核对 type_k blck_size 整除性（llama-context.cpp:4092）</td></tr>
+<tr><td>代码逻辑正确但偶发输出漂移</td><td>cache_prompt 的 batch-size 数值非确定性</td><td>验收用固定 batch 或关 cache 对照</td></tr>
+</table>
+</section>
+
+<section>
+<h1>五、集成过程中的辅助设计（要不要加？加什么？）</h1>
+<p class="p"><b>结论：要加，但分层加</b>——观测走零成本通道常开，诊断钩子按需开启，定位工具留在离线。这也符合 llama.cpp 自身"零运行时分配"的克制设计哲学。</p>
+<table>
+<tr><th>级别</th><th>辅助设计</th><th>实现点</th><th>成本</th></tr>
+<tr><td class="p0">P0</td><td>日志接管：llama_log_set 回调把内部 timing/警告转投网关日志（结构化+trace id）</td><td>llama.h:1671</td><td>近零</td></tr>
+<tr><td class="p0">P0</td><td>性能计数导出：周期采样 llama_perf_context，导出 pp/tg 延迟直方图；生产可用 no_perf 关闭</td><td>llama.h:1680</td><td>近零</td></tr>
+<tr><td class="p0">P0</td><td>走 llama-server 时：/metrics 接 Prometheus + Grafana（kv 占用/并发/请求延迟全都有）；容量规划用 bench.py 压测</td><td>server-http.cpp:61</td><td>近零</td></tr>
+<tr><td class="p1">P1</td><td>质量回归护栏：NLU golden set + --kl-divergence 进 CI，量化工件更换/版本升级自动比对（与 qwen3-nlu-replay 夹具天然衔接）</td><td>perplexity.cpp:1675</td><td>中（跑分时间）</td></tr>
+<tr><td class="p1">P1</td><td>诊断模式开关：注册 eval_callback 逐算子计时 + copy_callback 拷贝开销，用配置项开关（回调有开销，别常开）</td><td>ggml-backend.h:373</td><td>中</td></tr>
+<tr><td class="p1">P1</td><td>超时与取消：abort_callback 接入网关请求超时；避免慢请求占住 slot</td><td>graph_compute abort 机制</td><td>低</td></tr>
+<tr><td class="p2">P2</td><td>后端一致性巡检：ggml_backend_compare_graph_backend（ggml-backend.h:448）对比 CPU vs GPU 数值一致性，硬件适配回归用</td><td>官方 API</td><td>中</td></tr>
+<tr><td class="p2">P2</td><td>工件指纹：每次部署跑 gguf_hash.py 记录 SHA，退化先排除"模型文件悄悄变了"</td><td>gguf-py\gguf\scripts\</td><td>低</td></tr>
+</table>
+<p class="small">对应到你的 WTP184 网关：P0 三项建议直接进第一版集成；KL 回归护栏与 nlu-replay 夹具合并后，就是"模型质量门禁"的完整闭环。</p>
+</section>
+</body></html>
