@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TensorRT-LLM 近一个月 Feature 与 Tricky Fix 技术分析</title>
+<style>
+:root{--bg:#0d1117;--panel:#151b23;--panel2:#1b2430;--text:#e6edf3;--muted:#9daaba;--line:#2c3745;--blue:#6ea8fe;--cyan:#56d4dd;--green:#56d364;--amber:#e3b341;--red:#ff7b72;--purple:#d2a8ff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.72 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:1240px;margin:auto;padding:34px 28px 70px}header{padding:34px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(135deg,#17202c,#111820 60%,#15251d);box-shadow:0 18px 45px #0004}h1{font-size:30px;line-height:1.25;margin:0 0 14px}h2{font-size:23px;margin:42px 0 16px;padding-top:8px}h3{font-size:18px;margin:24px 0 10px}.case h3{margin:0 0 10px}p{margin:8px 0}.sub{color:var(--muted);max-width:960px}.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.pill,.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted);background:#ffffff06}.tag.blue{color:var(--blue);border-color:#6ea8fe55}.tag.green{color:var(--green);border-color:#56d36455}.tag.amber{color:var(--amber);border-color:#e3b34155}.tag.red{color:var(--red);border-color:#ff7b7255}.tag.purple{color:var(--purple);border-color:#d2a8ff55}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}.card,.case{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}.card strong{color:var(--cyan)}.note{border-left:3px solid var(--amber);background:#e3b3410c;padding:12px 16px;margin:14px 0;border-radius:0 10px 10px 0}.good{border-left-color:var(--green);background:#56d3640b}.info{border-left-color:var(--blue);background:#6ea8fe0b}.danger{border-left-color:var(--red);background:#ff7b720b}.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:14px;margin:14px 0}table{width:100%;border-collapse:collapse;background:var(--panel)}th,td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{background:var(--panel2);color:#c9d5e3;font-size:13px;white-space:nowrap}tr:last-child td{border-bottom:0}td{min-width:120px}td:first-child{min-width:185px}.num{color:var(--green);font-weight:650;white-space:nowrap}.muted{color:var(--muted)}code{font-family:"Cascadia Code",Consolas,monospace;font-size:13px;color:#a5d6ff;background:#0a1018;border:1px solid #263243;border-radius:5px;padding:1px 5px;white-space:nowrap}.cases{display:grid;gap:15px}.case{padding:20px}.casehead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.case h3 a{color:var(--text)}.flow{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}.flow>div{background:#0d141d;border:1px solid #263242;border-radius:10px;padding:12px 14px}.flow b{display:block;color:var(--amber);margin-bottom:4px}.flow .fix b{color:var(--green)}.verify{margin-top:10px;color:var(--muted);font-size:13px}.rank{font-size:12px;color:var(--purple);white-space:nowrap}.toc{columns:2;margin:14px 0 0;padding-left:22px}.toc li{margin:5px 0}.footer{margin-top:42px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}.small{font-size:13px}.kpi{font-size:23px;font-weight:700;color:var(--text);display:block;margin-bottom:6px}ul{margin:8px 0;padding-left:21px}li{margin:4px 0}@media(max-width:850px){.grid{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.wrap{padding:18px 14px}header{padding:22px}h1{font-size:25px}.toc{columns:1}.casehead{display:block}}
+</style>
+</head>
+<body><main class="wrap">
+<header>
+<div class="pill">GitHub 工程调研 · 2026-09-28 至 2026-10-28</div>
+<h1>TensorRT-LLM 近一个月 Feature 与 Tricky Fix 技术分析</h1>
+<p class="sub">基于 NVIDIA/TensorRT-LLM 官方 Release、Pull Request（PR）与必要代码差异，归纳月度新能力，并重点拆解 KV 所有权、异步 GPU 同步、流生命周期与大地址计算等疑难修复。</p>
+<div class="meta"><span class="tag amber">v1.3.0rc29 · 09-29</span><span class="tag amber">v1.4.0rc0 · 10-14</span><span class="tag amber">v1.4.0rc1 · 10-22</span><span class="tag purple">main 比 rc1 多 287 commits</span></div>
+</header>
+<section>
+<h2>一、结论先行</h2>
+<div class="grid">
+<div class="card"><span class="kpi">KV Cache V2 成为核心</span><strong>统一管理、Mooncake、host tier、稀疏 offload、FP4 跨节点传输</strong>共同推进长上下文和分离式 serving；rc1 默认切到 V2 与 Python transceiver。</div>
+<div class="card"><span class="kpi">硬件与模型同步扩展</span><strong>Rubin / Blackwell、DSpark / MTP、VisualGen、多模态编码器</strong>都有新快速路径；GLM-5.3-Flash、DeepSeek-V4.1-Flash 等模型进入支持列表。</div>
+<div class="card"><span class="kpi">修复重点是“可证明安全”</span>传输 SUCCESS、逻辑请求结束、warp barrier、int64 目标变量都曾被误当作安全证据；修复转向<strong>覆盖验证、退休证明、proxy fence、前置类型提升</strong>。</div>
+</div>
+<div class="note danger"><b>版本警示：</b>本月三个版本全部是 Pre-release。最新稳定版仍是 2026-04-20 的 v1.2.1，因此不能把下述能力描述为“稳定版已具备”。main 条目又晚于 rc1，截至 10 月 28 日尚未形成新 Release。</div>
+<div class="note info"><b>统计口径：</b>覆盖 rc29、rc0、rc1 的官方发布说明，并分页检查 rc1 后 main 的 287 个提交，筛选高价值 feature/fix。性能数字均来自 PR 作者的特定硬件、模型和并行配置，未在本地复现。</div>
+</section>
+<section>
+<h2>二、最近一个月新增的 Feature</h2>
+<div class="tablebox"><table>
+<thead><tr><th>方向 / 版本</th><th>新增能力与工程价值</th><th>数据、限制与来源</th></tr></thead>
+<tbody>
+<tr><td><b>KV Cache Manager V2</b><br>rc0 / rc1 / main</td><td>Mooncake pool、CLI、V2 preemption 与 Mooncake connector 接入；支持渐进填充 host tier、KV lending API。rc1 默认启用 V2 和 Python transceiver。main 以逐层 spec 统一 target/draft 与混合精度 KV，并探索跨轮生成 KV 复用。</td><td>main #19710 的后续请求传输量从 12 MiB 降至 4 MiB，<span class="num">-66.7%</span>；逐层 spec 尚需调用方提供 rank-local 描述。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19235">#19235</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19171">#19171</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/17495">#17495</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20178">#20178</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19710">#19710</a></td></tr>
+<tr><td><b>Disaggregated FP4 KV</b><br>rc1 / main</td><td>rc1 为 transfer backends 增加 KV lending；main 打通 FP4 MLA 分离式传输，降低 decode 侧 KV 传输成本。另有 GEN 端 TTFT 百分位准入，用于按服务目标控制请求接纳。</td><td>SM107、DeepSeek-R1 NVFP4、DEP2/DEP16、MTP3 下，NVFP4 KV 相比 FP8 的 TPOT p50/p99 均<span class="num">降低 38%</span>，但 TTFT 分别增加 20%/21%。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19722">#19722</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20544">#20544</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20736">#20736</a></td></tr>
+<tr><td><b>稀疏 KV 与原生稀疏 MLA</b><br>rc0 / main</td><td>新增 sparse KV 配置、tier-aware locking、offload 和 GPU metadata publication。main 为 DeepSeek-V4 generation 引入 PrimTS 原生稀疏 MLA，并在 SM100 默认启用。</td><td>4×B200 解码差异总体约 ±3%，价值主要是原生路径而非明显提速；冷启动增加约 530～570 秒，可用文档中的开关退出。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19580">#19580</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19821">#19821</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20209">#20209</a></td></tr>
+<tr><td><b>DSpark / MTP 验证与融合</b><br>rc29 / rc1 / main</td><td>新增 MLA-backed standalone DSpark drafter、ragged verification、confidence policy 与 calibrated scoring；main 融合 Markov chain、spec tail 和 drafter TP，减少调度与中间开销。</td><td>main 所属优化系列在 helix8、b8、MTP7 下 device step 从 29.23 ms 降至 25.79 ms，<span class="num">-11.8%</span>；不是 #20940 单 PR 的独立收益。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19040">#19040</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19818">#19818</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20071">#20071</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20940">#20940</a></td></tr>
+<tr><td><b>Rubin / Blackwell 快速路径</b><br>rc29 / rc1 / main</td><td>Rubin FP4 MLA 重构、locality-domain execution、多节点 MegaMoE 初始化；Blackwell CuTe DSL MLA 支持 packed query heads/compact inputs；main 融合 DeepSeek-V4 decode 的 q_b GEMM、RMSNorm、RoPE。</td><td>多数 PR 未披露统一量化收益。main 的 context/mixed batch 仍走未融合路径。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/18478">#18478</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19272">#19272</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19338">#19338</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19961">#19961</a></td></tr>
+<tr><td><b>MoE 小批量路由</b><br>rc29 / rc0</td><td>Kimi-K3 NVFP4 SiTU 开放 CuTeDSL MoE；为不超过 8 token、512 experts 的场景增加 single-block router，降低小批量调度开销。</td><td>GB300、6-token、TP8/bs1/MTP5 下，图内开销从 5.42 降至 3.28 µs/层，E2E <span class="num">+1.0%～2.5% tok/s/user</span>；部分单 token 高档位仍保留旧内核。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19003">#19003</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19682">#19682</a></td></tr>
+<tr><td><b>VisualGen 稀疏注意力与并行</b><br>rc0 / rc1 / main</td><td>VSA/SOL 接入 PrimTS block-sparse FMHA；Wan 新增 token-sharded TP；MiniMax-H3 增加 parallel tiled VAE、Ulysses 和 DiT TP。</td><td>单 B200、Wan2.1-14B、720p、81 帧、50 步 denoise 下，相对 dense：VSA <span class="num">1.79×</span>、SOL <span class="num">1.13×</span>。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/18079">#18079</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19713">#19713</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19506">#19506</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20176">#20176</a></td></tr>
+<tr><td><b>多模态编码器优化</b><br>rc1 / main</td><td>统一 multimodal encoder cache，减少 encoder output copies；Qwen vision patch projection 改用 GEMM 并复用 fused QKV；main 按 prefill chunk 调度 encoder，OpenEngine gRPC 接收图像。</td><td>H200 上整个 Qwen vision tower 时延<span class="num">降低 6.2%～8.4%</span>；命中 encoder cache 的请求不享受这项 kernel 收益。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/17876">#17876</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19797">#19797</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19884">#19884</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20446">#20446</a></td></tr>
+<tr><td><b>新模型与量化 checkpoint</b><br>rc0 / rc1 / main</td><td>新增 GLM-5.3-Flash、DeepSeek-V4.1-Flash、NVFP4 GLM-5.3-Flash；Qwen3.8-Flash-Next-NVFP4 成为实验性 Modeling V2 target；K-EXAONE-2、Qwen-Image-Layered、Cosmos3 等路径扩展。</td><td>模型支持通常依赖指定 checkpoint 格式、后端和 GPU，不能仅凭“模型名支持”推断所有量化/并行组合均可用。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19136">#19136</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19727">#19727</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20127">#20127</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20143">#20143</a></td></tr>
+<tr><td><b>Serving / API 可配置性</b><br>rc0 / rc1 / main</td><td>CLI 配置覆盖、逐请求 speculative acceptance 指标、serving config schemas、动态选择 Modeling V2；main 增加标准 gRPC 健康检查和 Anthropic 流式 keepalive。</td><td>这些能力主要改善运维与兼容性，未披露性能数字。<br><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19555">#19555</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19311">#19311</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19906">#19906</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20077">#20077</a>、<a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20437">#20437</a></td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>三、最 Tricky 的 Fixed Issues：根因与方案</h2>
+<h3>3.1 KV 传输、退休与内存所有权</h3>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19545">1. #19545 · “传输 SUCCESS”却将未写完整的 KV 放入复用树</a></h3><span class="rank">rc0 / 跨请求污染</span></div>
+<p><span class="tag red">静默污染</span> 写入被跳过、部分完成或误路由时，结果仍可返回 SUCCESS。原请求可能正常，但坏页以 prompt token hash 进入 radix reuse tree，污染之后同前缀请求。</p>
+<div class="flow"><div><b>根因</b>传输结果只证明协议完成，不证明目标物理页被完整、唯一地覆盖；少写不安全，多写也可能意味着重复或误路由。</div><div class="fix"><b>方案</b>sender 对“实际完成 submission 的字节数”做 attestation，而不是报告计划写入量；receiver 要求与发布目标字节严格相等，少写、多写、未知均拒绝。各 rank verdict 在现有 outcome allgather 中取交集，不新增 collective。</div></div>
+<p class="verify">验证采用 fail-closed：未验证只禁止进入复用树，不影响当前生成。CPU mock 覆盖 false-success、short/over/unknown coverage。边界：同步多 rank 路径仍被审查指出可能只用本地 verdict。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19673">2. #19673 · RetirementWatchdog：逻辑请求结束不等于物理所有权已结算</a></h3><span class="rank">rc0 / 所有权生命周期</span></div>
+<p><span class="tag red">迟到访问</span> 失败、取消、超时或 shutdown 后，backend/远程访问可能仍在使用 KV/AUX；BACKEND DONE、暂时空 claim set 或 late completion 都可能被误当作可复用证据。</p>
+<div class="flow"><div><b>根因</b>逻辑结果与物理所有权被放在同一生命周期里处理；可重置 deadline 或暂时无 claim 会让“等待安全”无限延长或提前结束。</div><div class="fix"><b>方案</b><code>RetirementWatchdog</code> 串行化 expose→claim→settle/fatal，宽限期不可重置，逻辑终态不可被 late success 改写。到期只锁存 <code>UNPROVEN_FATAL</code> 并隔离，<b>时间本身从不授权释放</b>。</div></div>
+<p class="verify">81 个 deadline 用例；七套件 317 passed/1 skip。边界：rebase 后未重跑，GPU/NIXL qualification 未覆盖；进程终止和替换由 #19674 处理。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19674">3. #19674 · 无法证明 quiescence 时选择 fail-stop，而不是普通 cleanup</a></h3><span class="rank">rc0 / 分布式 containment</span></div>
+<p><span class="tag red">安全优先于可用性</span> 取消早于 session 创建或 metadata 已过期时可能永远没有 ACK，迟到 session 还可重新 admission；此时回收 KV 会让迟到访问命中已复用内存。</p>
+<div class="flow"><div><b>根因</b>缺失 ACK 不能解释为“没有访问”，超时也不能证明 GPU/RDMA 已排空；普通异常清理在分布式所有权下并不安全。</div><div class="fix"><b>方案</b>持久 request-ID fence 阻止旧请求重入；所有已发布 writer 排空后按序返回 <code>SESSION_QUIESCED</code>。固定 deadline 后仍无法证明时保留资源，通过预捕获 MPI communicator 强杀 executor world，日志最多等待 0.5 秒。</div></div>
+<p class="verify">x86/ARM 各 206 项通过。代价：MPI abort 可能终止整个 job，fence 元数据随取消 ID 增长；进程终止本身仍不能证明 GPU/RDMA revocation，自动安全替换不在覆盖范围内。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19869">4. #19869 · 禁用 cyclic GC 后，PyZMQ 异常环保留后续 IPC payload</a></h3><span class="rank">rc0 / Python 内存生命周期</span></div>
+<p><span class="tag red">Host OOM</span> 非阻塞 receive 失败留下 Future→exception→traceback→frame 环，frame 又持有后续 payload；服务为性能禁用 cyclic GC 后，引用计数无法打破该环。</p>
+<div class="flow"><div><b>根因</b>泄漏不是单个 payload 忘记删除，而是 PyZMQ Future、异常 traceback、frame 与 GC 策略共同形成的保留链。</div><div class="fix"><b>方案</b>先检查 <code>POLLIN</code> 再接收；stale readiness 引发 <code>zmq.Again</code> 时清空 <code>exc.__traceback__</code>，并把异步 poll 移出 exception handler，避免重建异常环。</div></div>
+<p class="verify">76 passed/5 skip；旧代码负面对照有 4 项 retention 失败。未重放 GLM-5.3/GB300 生产负载，也不是 RSS 长时间 soak 测试。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/18310">5. #18310 · DLPack 借用指针、空 deleter 与无限 shutdown</a></h3><span class="rank">rc1 / Capsule 所有权</span></div>
+<p><span class="tag red">UAF + shutdown 卡死</span> consumer 获得 ctypes-owned metadata 的借用指针而 deleter 为 no-op；worker 交付结果后死亡还会让 <code>proxy.shutdown()</code> 永远等待 future。</p>
+<div class="flow"><div><b>根因</b>capsule、wrapper 和导入 tensor 三方的所有权没有“恰好交接一次”；关闭路径又缺少统一时间上限。</div><div class="fix"><b>方案</b>一次 <code>PyMem_RawCalloc</code> 容纳 managed tensor、shape 和 strides，consumer deleter 负责释放；wrapper 只回收从未消费的 capsule，并依赖规范的 <code>used_dltensor</code> 改名。shutdown 使用共享 180 秒 deadline，超时转 dead-engine teardown。</div></div>
+<p class="verify">新增 consumed/unconsumed、strided view 和卡死 future 测试；PR 未提供当前测试运行输出，且 consumer 必须遵守 DLPack 改名规范。</p></article>
+</div>
+<h3>3.2 GPU 异步顺序、流所有权与大地址计算</h3>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19581">6. #19581 · KDA prefill 的“完成信号”漏掉仍在读 Q/K 的 K1 warps</a></h3><span class="rank">rc0 / Stage 复用竞态</span></div>
+<p><span class="tag red">同输入不同输出</span> TMA 在 K1 Pass 2b 仍读取共享 Q/K 时提前覆盖 stage，导致输出与 recurrent state 不确定。</p>
+<div class="flow"><div><b>根因</b><code>k1_done</code> 只表示 cumsum 完成；原 stage-reuse barrier 只等 10 个 MMA warp，没有等待另外 16 个 K1 reader warps。</div><div class="fix"><b>方案</b>把 K1 readers 纳入 stage-reuse arrivals，并覆盖首次 pre-arrival；K1 只有在 Pass 2b 实际读完 Q/K 后才 arrive，TMA 必须等 K1 和 MMA 两组读者。</div></div>
+<p class="verify">B200 15 项通过；eager/CUDA graph 各连续 128 次逐位一致。验证是 kernel-path overlay，不是完整 native-main 构建。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19829">7. #19829 · Kimi attn_res 同时存在 WAR 与 generic/async proxy 竞争</a></h3><span class="rank">rc0 / 双重同步缺口</span></div>
+<p><span class="tag red">罕见错值</span> 多 chunk 时慢 warp 仍读 <code>ws_stats</code>，快 warp 已写下一块；generic-proxy shared loads 与后续 TMA async-proxy refill 之间也缺少 fence。</p>
+<div class="flow"><div><b>根因</b>named barrier 只保证“写完再读”，不保证“读完再写下一 chunk”；普通 warp sync 也不能建立两种 proxy 之间的内存可见性。</div><div class="fix"><b>方案</b>按 chunk parity 双缓冲统计区，避免增加全局 barrier；release 前 <code>__syncwarp()</code>，每个读线程执行 <code>fence.proxy.async.shared::cta</code>，使顺序不依赖指令调度。</div></div>
+<p class="verify">480/480 点逐位一致，79,296 个 WAR hazard 降为 0；原生运行曾 0/200 复现。persistent kernel 的双缓冲仍留待后续。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20064">8. #20064 · Speculative beam D2H 路径同时缺少 allocator 与 CPU 同步</a></h3><span class="rank">rc1 / CUDA stream 所有权</span></div>
+<p><span class="tag red">崩溃 / 坏状态</span> side-stream 异步拷贝期间 caching allocator 可复用 source；另一路径 CPU 在 non-blocking D2H 完成前读取 pinned host beam history。</p>
+<div class="flow"><div><b>根因</b>PyTorch allocator 只凭原 stream 判断 tensor 可复用，不知道 side stream 仍读；non-blocking copy 又没有和 CPU 建立 happens-before。</div><div class="fix"><b>方案</b>对源 tensor 调用 <code>src.record_stream(side_stream)</code>，延长存储生命周期；builder 读 host 前同步 current stream，并仅在全部 beam 结束时调用，避免每一步都付同步成本。</div></div>
+<p class="verify">新增 CUDA 单测并手测 Qwen3-1.7B 不再崩溃；自动审查指出竞态测试缺少独立执行结果，不能把“测试已添加”当成“全部通过”。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20190">9. #20190 · 目标是 int64，乘法却已经先在 32 位溢出</a></h3><span class="rank">rc1 / 大上下文地址计算</span></div>
+<p><span class="tag red">静默越界写</span> 超过 32 个 1M-token context requests、行号达到 2²⁵时，gather 越界写、scatter 错读，且没有错误提示。</p>
+<div class="flow"><div><b>根因</b><code>token_idx * 64</code> 的两个操作数均为 32 位，表达式先按 32 位计算并回绕；即使结果随后存入 <code>int64_t</code>，也无法恢复正确地址。</div><div class="fix"><b>方案</b>gather/scatter 的 payload 与 scale 路径都在乘法前把 <code>token_idx</code> 转为 <code>int64_t</code>，而不是只扩大目标变量。</div></div>
+<p class="verify">GB300 47 项通过，最高验证 268,439,040 行；未新增常规单测，因为复现需要超过 2 GiB cache 加一份 gathered copy。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20221">10. #20221 · Helix all-to-all 把 FIFO flag 当数据，特定位型变成 NaN</a></h3><span class="rank">rc1 / Proxy 可见性</span></div>
+<p><span class="tag red">约 2×10⁻⁹/entry 损坏</span> cp=16、跨 NVL72 trays 时偶发 NaN；错误 u64 总位于 LL128 flag slot且等于调用步数，说明收到的是 flag 而非恢复后的数据。</p>
+<div class="flow"><div><b>根因</b><code>protoUnpack</code> 用 generic-proxy stores 恢复数据，随后 <code>cp.async.bulk</code> 以 async-proxy 读同一 shared memory。PTX 要求两者之间 proxy fence，只有 <code>__syncwarp()</code> 不足。</div><div class="fix"><b>方案</b>在 unpack 与 <code>s2gAllFields</code> 之间加入 <code>fence_view_async_shared()</code> 和 warp sync，确保 bulk read 看到恢复后的字，而非 FIFO step。</div></div>
+<p class="verify">约 1.26×10¹⁰ entries 压测由 23/20 个损坏降至 0，另一 600 秒测试 28→0。回归用 SM100/103 单 GPU 模拟四 rank，不是原始 16-GPU 拓扑。</p></article>
+</div>
+</section>
+<section>
+<h2>四、可复用的工程经验</h2>
+<div class="tablebox"><table>
+<thead><tr><th>问题模式</th><th>必须守住的不变量</th><th>推荐验证</th></tr></thead>
+<tbody>
+<tr><td>分布式 KV 传输</td><td>协议成功、实际字节覆盖、各 rank 复用共识是三个不同命题。</td><td>false-success、short/over-write、误路由、多 rank verdict 分歧。</td></tr>
+<tr><td>请求取消与退休</td><td>逻辑完成不释放物理所有权；只有排空证据能授权复用，超时不是证据。</td><td>无 session、过期 metadata、late completion、取消后重入、固定 deadline。</td></tr>
+<tr><td>CUDA 多 stream</td><td>allocator 生命周期与 CPU/GPU happens-before 必须分别建立。</td><td>side-stream copy、提前释放 source、non-blocking D2H 后立即读 host。</td></tr>
+<tr><td>GPU proxy / barrier</td><td>warp/barrier 同步线程，不自动保证 generic 与 async proxy 的内存可见性。</td><td>racecheck、强制延迟、压力kernel、逐位对比；原生不复现不代表无竞态。</td></tr>
+<tr><td>大索引地址计算</td><td>在第一次乘法前提升位宽，而不是仅把最终结果存入 64 位。</td><td>2²⁵/2³¹边界、payload与scale两条路径、真实大buffer认证。</td></tr>
+<tr><td>Python / DLPack 所有权</td><td>异常环要显式打破；跨语言对象必须明确由谁、在何时释放一次。</td><td>禁用GC负面对照、consumed/unconsumed、strided view、worker快速死亡。</td></tr>
+</tbody></table></div>
+<div class="note danger"><b>P0 · 生产采用：</b>本月能力都在 RC/main。若必须生产使用，固定到具体 RC commit，不用浮动 main；重点验证 rc1 默认 KV cache manager V2/Python transceiver、流式取消和分离式传输。rc1 已知问题包括 A100 上流式取消后的 KV transfer error，以及 Qwen3 JSON-schema 示例可能返回无边界响应。</div>
+<div class="note info"><b>P0 · 构建与迁移：</b>rc29 移除 AutoDeploy 和 CMake <code>cpp_only</code>，并升级 PyTorch 2.14、Triton 3.8、C++20；rc1 又用 <code>std::span</code> 替换 C++ ArrayView，并移除部分 <code>LlmRequest</code> 字段。插件和自有构建脚本需要先适配。</div>
+<div class="note good"><b>P1 · 性能评估：</b>FP4 KV 的 TPOT 收益伴随 TTFT 成本；PrimTS 原生稀疏 MLA 的默认路径可能带来显著冷启动开销；VisualGen、MoE router 等加速比都绑定具体模型和形状。应同时记录 TTFT、TPOT、E2E 吞吐、冷启动与精度。</div>
+</section>
+<section>
+<h2>五、术语速查</h2>
+<div class="tablebox"><table><tbody>
+<tr><td><b>KV Cache Manager V2</b></td><td>新一代 KV 块、分层存储、复用和传输管理体系。</td><td><b>Disaggregated serving</b></td><td>将 prefill/context 与 decode/generation 分离部署，通过传输层共享 KV。</td></tr>
+<tr><td><b>MLA</b></td><td>Multi-head Latent Attention，多头潜在注意力，以低秩表示降低 KV 开销。</td><td><b>NVFP4 / FP8</b></td><td>4-bit / 8-bit 浮点或微缩放格式，可压缩权重、激活或 KV。</td></tr>
+<tr><td><b>DSpark / MTP</b></td><td>草稿与多 token 预测路径；目标模型验证并接受或拒绝候选 token。</td><td><b>MoE</b></td><td>Mixture of Experts，混合专家；每 token 只激活部分专家。</td></tr>
+<tr><td><b>TMA / async proxy</b></td><td>Tensor Memory Accelerator 及异步内存访问代理，和普通 load/store 的可见性规则不同。</td><td><b>WAR</b></td><td>Write After Read，前一读尚未完成就被后续写覆盖。</td></tr>
+<tr><td><b>Quiescence</b></td><td>相关访问已排空、没有再使用资源的活动状态；必须有证据，不能由超时推断。</td><td><b>DLPack</b></td><td>跨框架张量交换协议，capsule 名称与 deleter 决定所有权交接。</td></tr>
+<tr><td><b>TPOT / TTFT</b></td><td>后续每 token 时间 / 首 token 时间，需分别评估。</td><td><b>PrimTS / VisualGen</b></td><td>高性能注意力内核路径 / TensorRT-LLM 的视觉生成模型子系统。</td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>六、主要一手来源</h2>
+<ul class="toc">
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/releases/tag/v1.3.0rc29">v1.3.0rc29 官方 Release</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/releases/tag/v1.4.0rc0">v1.4.0rc0 官方 Release</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/releases/tag/v1.4.0rc1">v1.4.0rc1 官方 Release</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/compare/v1.4.0rc1...main">v1.4.0rc1…main 官方 Compare</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19545">KV write coverage #19545</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19673">RetirementWatchdog #19673</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19674">Fail-stop retirement #19674</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19869">Async IPC retention #19869</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19581">KDA stage reuse #19581</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/19829">Kimi WAR/proxy fence #19829</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20064">Speculative beam D2H #20064</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20190">64-bit indexer offsets #20190</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/20221">Helix proxy fence #20221</a></li>
+<li><a href="https://github.com/NVIDIA/TensorRT-LLM/pull/18310">DLPack ownership #18310</a></li>
+</ul>
+</section>
+<div class="footer">生成时间：2026-10-28（UTC+8）。仅依据 GitHub 一手资料；未在本地复现 GPU 基准。RC 与 main 的行为可能继续变化，落地前应对应到具体 commit。</div>
+</main></body></html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vLLM 近一个月 Feature 与 Tricky Fix 技术分析</title>
+<style>
+:root{--bg:#0d1117;--panel:#151b23;--panel2:#1b2430;--text:#e6edf3;--muted:#9daaba;--line:#2c3745;--blue:#6ea8fe;--cyan:#56d4dd;--green:#56d364;--amber:#e3b341;--red:#ff7b72;--purple:#d2a8ff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.72 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:1240px;margin:auto;padding:34px 28px 70px}header{padding:34px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(135deg,#17202c,#111820 60%,#201a29);box-shadow:0 18px 45px #0004}h1{font-size:30px;line-height:1.25;margin:0 0 14px}h2{font-size:23px;margin:42px 0 16px;padding-top:8px}h3{font-size:18px;margin:24px 0 10px}.case h3{margin:0 0 10px}p{margin:8px 0}.sub{color:var(--muted);max-width:960px}.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.pill,.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted);background:#ffffff06}.tag.blue{color:var(--blue);border-color:#6ea8fe55}.tag.green{color:var(--green);border-color:#56d36455}.tag.amber{color:var(--amber);border-color:#e3b34155}.tag.red{color:var(--red);border-color:#ff7b7255}.tag.purple{color:var(--purple);border-color:#d2a8ff55}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}.card,.case{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}.card strong{color:var(--cyan)}.note{border-left:3px solid var(--amber);background:#e3b3410c;padding:12px 16px;margin:14px 0;border-radius:0 10px 10px 0}.good{border-left-color:var(--green);background:#56d3640b}.info{border-left-color:var(--blue);background:#6ea8fe0b}.danger{border-left-color:var(--red);background:#ff7b720b}.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:14px;margin:14px 0}table{width:100%;border-collapse:collapse;background:var(--panel)}th,td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{background:var(--panel2);color:#c9d5e3;font-size:13px;white-space:nowrap}tr:last-child td{border-bottom:0}td{min-width:120px}td:first-child{min-width:185px}.num{color:var(--green);font-weight:650;white-space:nowrap}.muted{color:var(--muted)}code{font-family:"Cascadia Code",Consolas,monospace;font-size:13px;color:#a5d6ff;background:#0a1018;border:1px solid #263243;border-radius:5px;padding:1px 5px;white-space:nowrap}.cases{display:grid;gap:15px}.case{padding:20px}.casehead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.case h3 a{color:var(--text)}.flow{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}.flow>div{background:#0d141d;border:1px solid #263242;border-radius:10px;padding:12px 14px}.flow b{display:block;color:var(--amber);margin-bottom:4px}.flow .fix b{color:var(--green)}.verify{margin-top:10px;color:var(--muted);font-size:13px}.rank{font-size:12px;color:var(--purple);white-space:nowrap}.toc{columns:2;margin:14px 0 0;padding-left:22px}.toc li{margin:5px 0}.footer{margin-top:42px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}.small{font-size:13px}.kpi{font-size:23px;font-weight:700;color:var(--text);display:block;margin-bottom:6px}ul{margin:8px 0;padding-left:21px}li{margin:4px 0}@media(max-width:850px){.grid{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.wrap{padding:18px 14px}header{padding:22px}h1{font-size:25px}.toc{columns:1}.casehead{display:block}}
+</style>
+</head>
+<body><main class="wrap">
+<header>
+<div class="pill">GitHub 工程调研 · 2026-09-28 至 2026-10-28</div>
+<h1>vLLM 近一个月 Feature 与 Tricky Fix 技术分析</h1>
+<p class="sub">基于 vllm-project/vllm 官方 Release、Pull Request（PR）和 Issue，提炼近期新能力，并拆解最难定位的修复：根因是什么、方案为什么有效、验证覆盖到哪里。</p>
+<div class="meta"><span class="tag blue">v0.31.0 · 2026-10-05</span><span class="tag green">v0.32.0 · 2026-10-18</span><span class="tag purple">main 快照 · 2026-10-28</span></div>
+</header>
+<section>
+<h2>一、结论先行</h2>
+<div class="grid">
+<div class="card"><span class="kpi">主线一：显存与长上下文</span><strong>NVFP4 / FP8 / 4-bit KV cache</strong>扩展到更多 GPU 和模型；HiSparse、KV-balanced MLA 开始针对长上下文、高并发和 Agentic 负载做驻留与负载均衡。</div>
+<div class="card"><span class="kpi">主线二：Serving 工程化</span><strong>MRV2、Elastic EP、preload、并行启动、least-loaded API worker</strong>共同指向大模型部署的启动时间、弹性扩展和短请求吞吐。</div>
+<div class="card"><span class="kpi">主线三：正确性与安全</span>最棘手的修复集中在<strong>全局/本地专家编号、异步 GPU 指令、缓存生命周期、跨线程时序、恶意模板与共享内存句柄</strong>。</div>
+</div>
+<div class="note info"><b>统计口径：</b>以近一个月内发布的 v0.31.0、v0.32.0，以及 v0.32.0 后截至 10 月 28 日的 main 为观察窗。长期开发但在本月首次随稳定版交付的 PR 也计入“本月新增能力”；不会把发布日期误写成 PR 的编写日期。main 快照相对 v0.32.0 约领先 1,082 个提交，本文只做高价值筛选。</div>
+<div class="note danger"><b>升级前先读破坏性变更：</b>v0.32.0 不再支持 Python 3.10；默认 CORS 不再允许任意来源；<code>transformers&gt;=5.16.1,&lt;5.20.0</code>；<code>max_tokens</code> 从“上下文预留”改为“输出上限”；cascade attention 被移除，Responses reasoning stream 事件改名。</div>
+</section>
+<section>
+<h2>二、最近一个月新增的 Feature</h2>
+<h3>2.1 已进入 v0.31.0 / v0.32.0 稳定版</h3>
+<div class="tablebox"><table>
+<thead><tr><th>方向</th><th>新增能力与实际价值</th><th>条件、数据与来源</th></tr></thead>
+<tbody>
+<tr><td><b>低精度 KV cache 扩展</b><br><span class="tag green">显存 / 吞吐</span></td><td>NVFP4 KV 扩展到 SM8x、SM90、SM12x，并覆盖 XQA decode 与 MiniMax-M3 sparse attention；GLM-5.x 在 SM100 默认 FP8 KV；SM90 新增 <code>fp8_ds_mla</code>；ROCm 增加 4-bit <code>ultraquant_4bit</code>。</td><td>GLM-5.x SM100：每 rank KV 内存减半、吞吐 <span class="num">+2.3%～5.5%</span>，但 TTFT 增加 7%～11%。GLM-5.3-Flash SM90 输出吞吐最高 <span class="num">+31%</span>。<br><a href="https://github.com/vllm-project/vllm/pull/46963">#46963</a>、<a href="https://github.com/vllm-project/vllm/pull/60620">#60620</a>、<a href="https://github.com/vllm-project/vllm/pull/60140">#60140</a>、<a href="https://github.com/vllm-project/vllm/pull/59246">#59246</a>、<a href="https://github.com/vllm-project/vllm/pull/57057">#57057</a></td></tr>
+<tr><td><b>Model Runner V2 与投机解码</b></td><td>v0.31 增加 draft-model speculative decoding、自定义 logits processors、DFlash async scheduling；v0.32 增加可变长度 GPU n-gram、Elastic EP、MLA 的 PCP+PP，并让 MRV2 成为 ROCm 默认 runner。</td><td>重点不是单一解码算法，而是让新 runner 覆盖弹性专家并行、长 prefill 和更多硬件。<br><a href="https://github.com/vllm-project/vllm/pull/43091">#43091</a>、<a href="https://github.com/vllm-project/vllm/pull/40704">#40704</a>、<a href="https://github.com/vllm-project/vllm/pull/53934">#53934</a>、<a href="https://github.com/vllm-project/vllm/pull/59139">#59139</a>、<a href="https://github.com/vllm-project/vllm/pull/56360">#56360</a></td></tr>
+<tr><td><b>HiSparse 驻留缓存</b></td><td>按请求缓存稀疏注意力的 residency 状态，减少长上下文、高并发下重复构建或迁移开销。</td><td>B200、GLM-5.3-NVFP4、长且完全 GPU 驻留上下文、高并发时，作者报告吞吐最高 <span class="num">+58%</span>；并非所有流量都能复现。<br><a href="https://github.com/vllm-project/vllm/pull/60083">#60083</a></td></tr>
+<tr><td><b>启动、预热与快速重启</b></td><td><code>vllm preload</code> 让量化权重跨 engine 重启驻留 GPU；新增实验性 CRIU snapshot；<code>vllm download-kernels</code> 安装 FlashInfer 预编译内核；<code>--preload-autotune</code> 保留 autotune 表。</td><td>目标是减少冷启动、内核编译与调参等待。CRIU snapshot 当时限 TP1。<br><a href="https://github.com/vllm-project/vllm/pull/56680">#56680</a>、<a href="https://github.com/vllm-project/vllm/pull/51360">#51360</a>、<a href="https://github.com/vllm-project/vllm/pull/58765">#58765</a>、<a href="https://github.com/vllm-project/vllm/pull/60085">#60085</a></td></tr>
+<tr><td><b>分布式并行与 RL 权重传输</b></td><td>新增 MoonEP balanced EP all2all、PCP+DP、DeepEPv2 sequence parallelism，以及 sharding-aware NCCL M2N 权重传输，服务超大 MoE、长 prefill 与训练—推理集群。</td><td>这些能力主要改善可部署性和集群扩展，不提供统一 E2E 提速数字。<br><a href="https://github.com/vllm-project/vllm/pull/52101">#52101</a>、<a href="https://github.com/vllm-project/vllm/pull/57075">#57075</a>、<a href="https://github.com/vllm-project/vllm/pull/57210">#57210</a>、<a href="https://github.com/vllm-project/vllm/pull/51520">#51520</a></td></tr>
+<tr><td><b>调度与多 API worker</b></td><td>可独立限制 RUNNING 请求，自适应 long-prefill threshold，优先调度已有 KV blocks 的等待请求；当 <code>--api-server-count&gt;1</code> 时连接分配给负载最低 worker。</td><td>Qwen3-0.6B、32 输入 / 1 输出 token 的短请求基准中 req/s <span class="num">+43%～85%</span>；不能外推到长生成。<br><a href="https://github.com/vllm-project/vllm/pull/56758">#56758</a>、<a href="https://github.com/vllm-project/vllm/pull/58947">#58947</a>、<a href="https://github.com/vllm-project/vllm/pull/60723">#60723</a></td></tr>
+<tr><td><b>结构化决策与通用解析器</b></td><td>新增 <code>POST /v1/systemone</code>，回答 choice/noul/score；<code>hf</code> tool/reasoning parser 直接读取 checkpoint 的 <code>response_template</code>，减少每模型专用解析器，覆盖 Python/Rust 前端。</td><td>价值在于把“结构化判断”和模型自描述解析变成标准 serving 能力。<br><a href="https://github.com/vllm-project/vllm/pull/59299">#59299</a>、<a href="https://github.com/vllm-project/vllm/pull/58604">#58604</a>、<a href="https://github.com/vllm-project/vllm/pull/58602">#58602</a>、<a href="https://github.com/vllm-project/vllm/pull/59005">#59005</a></td></tr>
+<tr><td><b>量化与 MoE 内核</b></td><td>支持 linear 在线重量化、per-token NVFP4 CuTe-DSL MoE、MXFP4 MoE oracle 与 BF16 fallback、compressed-tensors MXFP4+FP8 activation，以及更多 SM120/SM121 低比特格式。</td><td>新能力与静默 EP 修复 #59042 必须一起评估：功能能运行不等于专家路由正确。<br><a href="https://github.com/vllm-project/vllm/pull/55684">#55684</a>、<a href="https://github.com/vllm-project/vllm/pull/50030">#50030</a>、<a href="https://github.com/vllm-project/vllm/pull/60079">#60079</a>、<a href="https://github.com/vllm-project/vllm/pull/59815">#59815</a></td></tr>
+<tr><td><b>多模态与新模型</b></td><td>共享内存 tensor arena 以一次复制向 workers 广播大型多模态 tensor；Transformers backend 支持视频；新增 EmbeddingGemma 2 全模态 embedding、MiniCPM-V 4.7、Nemotron 3.5 ASR。</td><td>Nemotron 3.5 ASR 当前支持完整音频转写，原生实时流式尚未支持。<br><a href="https://github.com/vllm-project/vllm/pull/51207">#51207</a>、<a href="https://github.com/vllm-project/vllm/pull/57441">#57441</a>、<a href="https://github.com/vllm-project/vllm/pull/60254">#60254</a>、<a href="https://github.com/vllm-project/vllm/pull/58674">#58674</a>、<a href="https://github.com/vllm-project/vllm/pull/59827">#59827</a></td></tr>
+</tbody></table></div>
+<h3>2.2 仅在 main / 后续预发布中的高价值能力</h3>
+<div class="tablebox"><table>
+<thead><tr><th>Feature</th><th>机制与量化结果</th><th>状态 / 来源</th></tr></thead>
+<tbody>
+<tr><td><b>Kimi-K3 KV-balanced FP8 MLA</b></td><td>针对 Agentic 批次中上下文长度差异，按每个请求 KV 长度规划 split，形成 device work list，减少短请求过度切分与长请求尾部空闲。GB300 DEP16 场景中 TPS/GPU <span class="num">+7.8%</span>、p90 interactivity <span class="num">+20%</span>。</td><td>需显式 <code>--attention-backend KIMI_K3_KV_BALANCED_MLA</code>；限 SM10x、BF16 模型、FP8 E4M3 KV 和指定 MLA 形状。<br><a href="https://github.com/vllm-project/vllm/pull/63638">#63638</a></td></tr>
+<tr><td><b>spawn worker 并行启动</b></td><td>用线程池并行调用 <code>Process.start()</code>，重叠子进程导入 vLLM/PyTorch 的时间；TP8、8×H100 初始化从 55.3～56.5 秒降至 <span class="num">15.0～15.2 秒</span>。</td><td>fork、CPU backend、NUMA bind 仍保留串行；包含部分启动失败清理。<br><a href="https://github.com/vllm-project/vllm/pull/60028">#60028</a></td></tr>
+<tr><td><b>token embeddings / late chunking</b></td><td><code>/v1/embeddings</code> 和 <code>LLM.embed</code> 可返回 token vectors；配置 late chunking 后返回 chunk vectors 及 token/source ranges，适合长文档检索。</td><td>限 <code>token_embed</code> 任务；HTTP chunking 仅纯文本、float encoding，不是通用 OpenAI 字段。<br><a href="https://github.com/vllm-project/vllm/pull/61772">#61772</a></td></tr>
+<tr><td><b>MXFP4 activation quant 优化</b></td><td>路由已有 <code>sorted_expert_ids</code> 时直接使用，不再为每个 token row 搜索 expert offset。B300、256 experts 时 quant kernel 最高 <span class="num">3.39×</span>；GLM-5.3-MXFP4 TP4 单并发 E2E 输出吞吐 <span class="num">+5.7%</span>。</td><td>元数据已经存在时收益最大；参数可缺省，保留旧路径。<br><a href="https://github.com/vllm-project/vllm/pull/63101">#63101</a></td></tr>
+<tr><td><b>多模态内存与调度开销</b></td><td>MRV2 PP 后续 stage 不再加载 encoder tower，所测模型每 stage 节省 0.58～1.27 GiB；encoder-cache 释放从 O(N²) 降为 O(N)，4096 项微基准从 234.64 ms 降至 1.21 ms。</td><td>后者是 scheduler 微基准，普通请求差异不足 0.1 ms，不能把局部加速等同于 E2E。<br><a href="https://github.com/vllm-project/vllm/pull/60238">#60238</a>、<a href="https://github.com/vllm-project/vllm/pull/62850">#62850</a></td></tr>
+<tr><td><b>DSpark draft FP8 KV</b></td><td>草稿模型也使用 FP8 KV，在 GLM-5.3 TP4 默认配置下每 rank 节省约 5.38 GiB，作者报告性能接近持平。</td><td>仅 main；需要按具体草稿模型和硬件验证质量与吞吐。<br><a href="https://github.com/vllm-project/vllm/pull/63841">#63841</a></td></tr>
+</tbody></table></div>
+<p class="small muted">所有性能数字均为 PR 作者在指定模型、硬件和参数下的结果，不是普遍收益承诺。尤其要同时观察 TTFT、TPOT、吞吐、显存和精度，而不是只看单个 kernel 加速比。</p>
+</section>
+<section>
+<h2>三、最 Tricky 的 Fixed Issues：根因与方案</h2>
+<h3>3.1 已进入 v0.32.0 的修复</h3>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/50300">1. #50300 · 恶意 Jinja chat template 造成资源耗尽 DoS</a></h3><span class="rank">Security / API</span></div>
+<p><span class="tag red">CPU / 内存耗尽</span> 认证客户端可提交包含超大 <code>range()</code>、字符串乘法或深层嵌套循环的模板；同步渲染还会堵住共享 async runtime。</p>
+<div class="flow"><div><b>根因</b>把模板当成可信配置，而未把它视为可执行、可消耗无上限资源的输入；仅做语法解析无法限制运行成本。</div><div class="fix"><b>方案</b>Python 侧增加 AST 静态规则与可配置渲染超时，Responses 拒绝用户传入模板；Rust 侧以 50 万指令 fuel 限制执行，并用 <code>spawn_blocking</code> 隔离同步渲染。属于“静态拒绝 + 动态预算 + 隔离”的纵深防御。</div></div>
+<p class="verify">关联 GHSA-4hhp-h66f-j5j7。修复评审还处理过超时后 executor 生命周期问题，说明安全修复本身也必须做后续请求回归。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/59491">2. #59491 · tokenizer max_token_id 的 off-by-one 可杀死引擎</a></h3><span class="rank">Security / 边界</span></div>
+<p><span class="tag red">CUDA assert</span> 当词表大小为 32,000 且没有 padding 时，非法 token ID 32,000 能通过校验，并在 TP=1 embedding 查找中触发 CUDA assert。</p>
+<div class="flow"><div><b>根因</b><code>vocab_size</code> 是“数量”，最大合法 ID 应为 <code>vocab_size - 1</code>；是否实际崩溃还取决于词表 padding 和 TP 索引屏蔽，所以并非所有模型都暴露。</div><div class="fix"><b>方案</b>把回退值改为 <code>vocab_size - 1</code>，但仍优先使用 <code>get_vocab()</code> 的真实最大 ID，避免误伤 Qwen 等包含 added tokens 的模型。</div></div>
+<p class="verify">验证：195 项指定测试通过；GPT-2 最大值由 50257 修正为 50256，Qwen2.5 仍保持 151664。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/51504">3. #51504 · 从未连上的 P2P peer 永久占用 ZMQ sockets</a></h3><span class="rank">Security / 分布式生命周期</span></div>
+<p><span class="tag red">EngineCore 退出</span> 客户端通过 <code>kv_transfer_params</code> 提交唯一且不监听的 peer，每个残留约 3 个 socket；约 340 个 peer 即可耗尽 ZMQ 的 1,023 上限。</p>
+<div class="flow"><div><b>根因</b>原清理依赖 <code>DISCONNECTED</code>，但“连接从未建立”的 peer 不产生这个事件，因此永远不进入普通断连回收路径。</div><div class="fix"><b>方案</b>五层防护：peer 上限 128、握手 30 秒、空闲 300 秒、session 创建异常边界、补充 CLOSED 和 HANDSHAKE_FAILED 等 fatal monitor 事件；同时增加 idle reaper。</div></div>
+<p class="verify">参数：<code>VLLM_P2P_MAX_PEERS</code>、<code>VLLM_P2P_HANDSHAKE_TIMEOUT_S</code>、<code>VLLM_P2P_IDLE_TIMEOUT_S</code>。195 项 P2P 测试通过。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/59357">4. #59357 · 共享内存多模态缓存句柄可伪造且会在 clear 后别名</a></h3><span class="rank">Security / 跨进程对象身份</span></div>
+<p><span class="tag red">不可信反序列化</span> <code>--mm-processor-cache-type shm</code> 曾信任客户端提交的共享内存 address/ID；<code>clear()</code> 重置 ID 还会让旧句柄指向新对象。</p>
+<div class="flow"><div><b>根因</b>address+ID 只是定位信息，不具备不可伪造性；ID 重用又破坏“句柄永远指向同一逻辑对象”的生命周期假设。</div><div class="fix"><b>方案</b>服务端生成随机 32 字节 secret，对 cache key、address、ID 做 HMAC；读、写、touch 和 scale-out 输入都验签并检查边界。clear 后不再重置 ID，使旧句柄在槽位复用时失效。</div></div>
+<p class="verify">74 passed、1 skipped，覆盖缺失/篡改/错误 key 签名、越界字段、clear 前旧句柄和 scale-out 验证；默认 LRU cache 不受影响。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/59042">5. #59042 / Issue #58729 · EP 下 token 被静默路由到错误专家</a></h3><span class="rank">MoE / 分布式编号域</span></div>
+<p><span class="tag red">静默错误</span> CUTLASS NVFP4/MXFP4 MoE 在 EP 下输出退化，GLM-5.3-MXFP4、DP/EP=8 的 GSM8K 曾接近 0%，但没有崩溃或明确报错。</p>
+<div class="flow"><div><b>根因</b>实现接收 <code>expert_map</code> 却不使用。<code>topk_ids</code> 仍是全局专家编号，而当前 rank 的权重是本地分片；把全局 ID 直接当本地数组下标，数学计算正常执行，语义却完全错误。</div><div class="fix"><b>方案</b>grouped GEMM 前通过 Triton kernel 将全局 topk_ids 重映射为本地 ID，复用已有 remap 实现并增加 int32/int64 输出；只对支持的 EP 通信后端开放，其他组合 fail fast。</div></div>
+<p class="verify">修复后 GSM8K flexible-extract 达 95.07%；remap 开销约 1.6 µs，约为 GEMM 的 1%。这类问题必须用精度评测和分布式配置覆盖，单元 kernel 对拍不足以发现。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/60614">6. #60614 · 调试引用把 Phi-4 音频临时注意力变成跨请求内存滞留</a></h3><span class="rank">多模态 / 内存生命周期</span></div>
+<p><span class="tag red">CUDA OOM</span> 合法最长音频可让 24 层共同滞留数 GiB 注意力矩阵，请求结束后仍不释放，最终 EngineCore 死亡。</p>
+<div class="flow"><div><b>根因</b>eager attention 为调试把完整概率矩阵保存到每层模块的 <code>self.attn</code>。临时计算结果因此获得长生命周期引用，Python/PyTorch 无法回收。</div><div class="fix"><b>方案</b>删除模块上的 <code>self.attn</code> 保留，默认改用 SDPA（Scaled Dot-Product Attention），避免实体化完整稠密注意力矩阵，同时保留 eager 路径但不再残留。</div></div>
+<p class="verify">两项回归测试分别覆盖默认 SDPA 和 eager 无残留。难点是 OOM 发生在后续请求，真正的引用却在之前请求中建立。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/61718">7. #61718 / Issue #61603 · Mamba2 在 SM90 随机整行 NaN</a></h3><span class="rank">Triton / 异步 WGMMA 竞态</span></div>
+<p><span class="tag red">间歇 NaN</span> 有限输入也会间歇产生 NaN/Inf；进程重启后可能“时好时坏”，因为 autotune 每次只按速度重新选配置。</p>
+<div class="flow"><div><b>根因</b>特定 <code>num_warps/BLOCK_SIZE_M/num_stages</code> 组合让 Triton 生成异步 WGMMA；上一轮尚未等待完成，下一轮便覆盖其 A 操作数寄存器，违反 PTX ISA 约束。竞争本身随机，autotune 又把“选到坏配置”变成跨进程随机事件。</div><div class="fix"><b>方案</b>仅 CUDA SM90 从实际 autotune 列表过滤危险配置：warps 为 4 的倍数、M 为 64 的倍数且 stages&gt;1。不是只删除已观测失败的几个配置，也不影响 ROCm 或其他 GPU。</div></div>
+<p class="verify">23 个配置中过滤 11 个；坏配置从 8/23 变为 0/12，95 项测试通过。1024/8192 长度最佳耗时保持 62.2/425.4 µs；未跑端到端服务，底层 Triton bug 属于规避而非编译器修复。</p></article>
+</div>
+<h3>3.2 仅在 main 的疑难修复</h3>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/60553">8. #60553 · encoder cache 与 speculative lookahead 相互等待形成死锁</a></h3><span class="rank">Scheduler / 多模态</span></div>
+<p><span class="tag red">永久 0 token</span> encoder cache 只能容纳一张图，且两图间距 <code>gap &lt; 2 × lookahead</code> 时，请求永久无法调度，没有错误日志。</p>
+<div class="flow"><div><b>根因</b>释放逻辑要等到 <code>end1 + L</code> 才释放图 1；分配图 2 失败时，调度却在 <code>start2 - L</code> 截断。当 <code>start2 - L &lt; end1 + L</code>，计算位置永远到不了释放点，图 2 也永远分不到缓存。</div><div class="fix"><b>方案</b>两处都去掉 L 偏移：按真实 item end 释放，分配失败时停在 start2；边界处由 runner 已有路径回退到 token embedding。只修一边只会把死锁窗口从 <code>gap&lt;2L</code> 缩到 <code>gap&lt;L</code>。</div></div>
+<p class="verify">GB200 上 gap=0/1 从 300 秒挂起变为完成，温度 0 输出与无推测基线一致。代价是缓存满时边界最多 L 个位置使用 token embedding，可能略降一步接受率。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/62164">9. #62164 / Issue #62121 · 跨线程 cache invalidation 插入 lookup 与 merge 之间</a></h3><span class="rank">Async / 多模态缓存</span></div>
+<p><span class="tag red">Expected a cached item</span> asyncio 线程处理 engine cache-miss 时，可在单 worker renderer 的 lookup 和 merge 之间删除 entry，产生 HTTP 500。</p>
+<div class="flow"><div><b>根因</b>缓存读取与失效没有共同的线性化边界；简单加一把大锁又可能阻塞输出流，朴素排队则会被不存在的 hash 或重复通知撑大。</div><div class="fix"><b>方案</b>miss 先写入 pending set，在下一次 render 查缓存前统一交换并应用；过滤未知 hash、合并重复通知，失败时恢复尚未处理的集合，同时保留新到通知。</div></div>
+<p class="verify">历史 A800 压测目标断言从 18 降为 0；最终版 57 passed、1 deselected。PR 明确说明该压力数据对应历史提交，最终清理版另有 sleep/wake 与真实 renderer 验证，不混同为同一次测试。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/pull/63118">10. #63118 · nvcc 优化与 NaN 排序不一致最终导致 shared-memory 越界</a></h3><span class="rank">CUDA / 编译器与数值</span></div>
+<p><span class="tag red">Illegal memory access</span> ≥64K 列且 NaN 数超过 top_k 时，<code>cooperative_topk</code> 崩溃；warmup/CUDA graph capture 读取未初始化 KV 时可能遇到这种输入。</p>
+<div class="flow"><div><b>根因</b>nvcc 将整数位操作 <code>bits | 0x80000000u</code> 优化成 FP <code>-|x|</code>。有限值位级等价，但 FADD 会把 NaN 规范化为 -0.0 的 key；粗排却把 NaN 排在 +inf 之上。两套顺序冲突产生错误 pivot，使无界 append 写穿 shared memory。</div><div class="fix"><b>方案</b>用 opaque <code>mov.b32</code> 读取原始位，阻止编译器把整数位操作改写为 FP 运算；粗排和精确恢复因此都把 NaN 排在 +inf 之上，并复用到相关 top-k 路径。</div></div>
+<p class="verify">compute-sanitizer 定位 shared OOB；新增 64K～1M 列、每行 4×top_k NaN 的溢出回归和多组 torch 对拍。这个案例不能靠“忽略 NaN”解释，因为编译器、排序和内存安全构成了一条完整因果链。</p></article>
+</div>
+</section>
+<section>
+<h2>四、工程经验与升级建议</h2>
+<div class="tablebox"><table>
+<thead><tr><th>问题模式</th><th>需要守住的不变量</th><th>推荐验证</th></tr></thead>
+<tbody>
+<tr><td>EP / 分片计算</td><td>全局逻辑 ID 与本地物理 ID 必须在边界显式转换。</td><td>DP/EP&gt;1 的真实模型精度评测；禁止只看 kernel 是否执行成功。</td></tr>
+<tr><td>autotune / 异步 GPU</td><td>性能搜索空间必须排除已证明不满足硬件时序约束的配置。</td><td>逐配置重复运行、finite/closeness 检查、跨进程重启；不能只测 autotune 最终选中的一个配置。</td></tr>
+<tr><td>缓存与 lookahead</td><td>释放条件和分配/截断条件必须能从同一进度变量推导，不允许循环等待。</td><td>对 gap、lookahead、cache capacity 做二维/三维 sweep。</td></tr>
+<tr><td>跨线程缓存失效</td><td>lookup/merge/invalidation 要有明确线性化点，通知队列必须有界。</td><td>强制交错、重复 miss、未知 hash、失败恢复和持续背景流量。</td></tr>
+<tr><td>共享内存与跨进程句柄</td><td>定位信息不等于授权；句柄需认证且不能被 ID 重用重新解释。</td><td>伪造签名、越界字段、clear 后旧句柄、scale-out 输入。</td></tr>
+<tr><td>不可信模板 / peer</td><td>所有执行和连接都需资源预算、超时与回收，包括“从未成功建立”的状态。</td><td>恶意模板、握手失败、空闲超时、后续正常请求存活。</td></tr>
+</tbody></table></div>
+<div class="note danger"><b>P0 · 安全与兼容：</b>优先采用包含 #50300、#59491、#51504、#59357 的 v0.32.0 或更新版本。升级前核对 Python 3.11+、Transformers 版本区间、浏览器端 <code>--allowed-origins</code>、Responses 事件和 <code>max_tokens</code> 客户端语义。</div>
+<div class="note info"><b>P1 · 性能上线：</b>低精度 KV 要同时测显存、TTFT、TPOT 与精度。GLM-5.x SM100 的 FP8 KV 默认变化不是“纯收益”；HiSparse 的 58% 和 API worker 的 43%～85% 都有明确负载前提。</div>
+<div class="note good"><b>P1 · 回滚策略：</b>稳定生产保留 v0.31.0/v0.32.0 对应容器、依赖 lock 和配置。main 功能应按 PR 单独开启，例如 KV-balanced MLA 是 opt-in；遇到问题时关闭新 backend 比回滚整个 serving 栈更容易定位。</div>
+</section>
+<section>
+<h2>五、术语速查</h2>
+<div class="tablebox"><table><tbody>
+<tr><td><b>KV cache</b></td><td>缓存历史注意力 Key/Value，长上下文和高并发下是主要显存消耗。</td><td><b>NVFP4 / MXFP4 / FP8</b></td><td>不同 4-bit / 8-bit 浮点或微缩放格式，用于权重、激活或 KV 压缩。</td></tr>
+<tr><td><b>MLA</b></td><td>Multi-head Latent Attention，多 latent 注意力；通过低秩表示降低 KV 存储与计算。</td><td><b>MRV2</b></td><td>Model Runner V2，vLLM 新一代模型执行路径。</td></tr>
+<tr><td><b>TP / DP / PP / EP / PCP</b></td><td>张量、数据、流水线、专家、prefill context 等并行维度；各自切分对象不同。</td><td><b>TTFT / TPOT</b></td><td>首 token 时间 / 后续每输出 token 时间，应分别评估。</td></tr>
+<tr><td><b>Speculative decoding</b></td><td>草稿先提出多个 token，目标模型验证并接受或拒绝；EAGLE、MTP、DFlash、DSpark 是不同路径。</td><td><b>MoE</b></td><td>Mixture of Experts，混合专家；路由 ID 与 EP 本地权重编号必须正确映射。</td></tr>
+<tr><td><b>WGMMA</b></td><td>Hopper 的 warpgroup 矩阵乘指令，异步执行时对操作数寄存器有严格等待约束。</td><td><b>SDPA</b></td><td>Scaled Dot-Product Attention，融合注意力接口，可避免显式保存完整概率矩阵。</td></tr>
+<tr><td><b>AST / HMAC</b></td><td>抽象语法树静态检查 / 基于密钥的消息认证码，用于模板限制与句柄防伪。</td><td><b>CRIU</b></td><td>Checkpoint/Restore In Userspace，用于进程快照与恢复。</td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>六、主要一手来源</h2>
+<ul class="toc">
+<li><a href="https://github.com/vllm-project/vllm/releases/tag/v0.31.0">v0.31.0 官方 Release</a></li>
+<li><a href="https://github.com/vllm-project/vllm/releases/tag/v0.32.0">v0.32.0 官方 Release</a></li>
+<li><a href="https://github.com/vllm-project/vllm/compare/v0.32.0...main">v0.32.0…main 官方 Compare</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/60140">GLM FP8 KV #60140</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/63638">KV-balanced MLA #63638</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/60028">并行 worker 启动 #60028</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/50300">Jinja DoS #50300</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/51504">P2P socket exhaustion #51504</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/59042">EP expert_map #59042</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/61718">Mamba2 NaN #61718</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/60553">encoder cache 死锁 #60553</a></li>
+<li><a href="https://github.com/vllm-project/vllm/pull/63118">NaN top-k OOB #63118</a></li>
+</ul>
+</section>
+<div class="footer">生成时间：2026-10-28（UTC+8）。仅使用 GitHub 一手资料；未在本地复现 PR 中的硬件基准。项目迭代很快，main 条目可能在后续版本中调整、回退或改名。</div>
+</main></body></html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>llama.cpp 近期 Feature 与 Tricky Fix 技术分析</title>
+<style>
+:root{--bg:#0d1117;--panel:#151b23;--panel2:#1b2430;--text:#e6edf3;--muted:#9daaba;--line:#2c3745;--blue:#6ea8fe;--cyan:#56d4dd;--green:#56d364;--amber:#e3b341;--red:#ff7b72;--purple:#d2a8ff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.72 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:1220px;margin:auto;padding:34px 28px 70px}header{padding:34px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(135deg,#17202c,#111820 65%,#152229);box-shadow:0 18px 45px #0004}h1{font-size:30px;line-height:1.25;margin:0 0 14px}h2{font-size:23px;margin:42px 0 16px;padding-top:8px}h3{font-size:18px;margin:0 0 10px}p{margin:8px 0}.sub{color:var(--muted);max-width:940px}.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.pill,.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted);background:#ffffff06}.tag.blue{color:var(--blue);border-color:#6ea8fe55}.tag.green{color:var(--green);border-color:#56d36455}.tag.amber{color:var(--amber);border-color:#e3b34155}.tag.red{color:var(--red);border-color:#ff7b7255}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}.card,.case{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}.card strong{color:var(--cyan)}.note{border-left:3px solid var(--amber);background:#e3b3410c;padding:12px 16px;margin:16px 0;border-radius:0 10px 10px 0}.good{border-left-color:var(--green);background:#56d3640b}.info{border-left-color:var(--blue);background:#6ea8fe0b}.danger{border-left-color:var(--red);background:#ff7b720b}.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:14px;margin:14px 0}table{width:100%;border-collapse:collapse;background:var(--panel)}th,td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{background:var(--panel2);color:#c9d5e3;font-size:13px;white-space:nowrap}tr:last-child td{border-bottom:0}td{min-width:110px}td:first-child{min-width:180px}.num{color:var(--green);font-weight:650;white-space:nowrap}.muted{color:var(--muted)}code{font-family:"Cascadia Code",Consolas,monospace;font-size:13px;color:#a5d6ff;background:#0a1018;border:1px solid #263243;border-radius:5px;padding:1px 5px;white-space:nowrap}.cases{display:grid;gap:15px}.case{padding:20px}.casehead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.case h3 a{color:var(--text)}.flow{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}.flow>div{background:#0d141d;border:1px solid #263242;border-radius:10px;padding:12px 14px}.flow b{display:block;color:var(--amber);margin-bottom:4px}.flow .fix b{color:var(--green)}.verify{margin-top:10px;color:var(--muted);font-size:13px}.rank{font-size:12px;color:var(--purple);white-space:nowrap}.toc{columns:2;margin:14px 0 0;padding-left:22px}.toc li{margin:5px 0}.footer{margin-top:42px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}.small{font-size:13px}.kpi{font-size:25px;font-weight:700;color:var(--text);display:block}.sticky{position:sticky;top:0;z-index:2}ul{margin:8px 0;padding-left:21px}li{margin:4px 0}@media(max-width:850px){.grid{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.wrap{padding:18px 14px}header{padding:22px}h1{font-size:25px}.toc{columns:1}.casehead{display:block}}
+</style>
+</head>
+<body><main class="wrap">
+<header>
+<div class="pill">GitHub 工程调研 · 2026-10-28</div>
+<h1>llama.cpp 近期 Feature 与 Tricky Fix 技术分析</h1>
+<p class="sub">以官方 Release、Pull Request（PR，合并请求）和 Issue（问题单）为依据，回答三个问题：最近新增了什么、哪些修复真正棘手、维护者用了什么方案。</p>
+<div class="meta"><span class="tag green">最新稳定版 v0.7.0 · 2026-10-15</span><span class="tag amber">最新预发布 b11944 · 2026-10-28</span><span class="tag blue">稳定版后 275 个提交</span></div>
+</header>
+<section>
+<h2>一、结论先行</h2>
+<div class="grid">
+<div class="card"><span class="kpi">推理性能</span><strong>MoE 专家缓存</strong>成为本轮最实用的性能特性：把内存中的专家按 LRU（最近最少使用）换入 GPU，特定 RTX 5090 场景最高报告 2.20× 解码速度；随后演进为多 GPU 共享和 SLRU 分段缓存。</div>
+<div class="card"><span class="kpi">产品能力</span>从“文本推理 CLI/服务”继续扩展到<strong>实时语音转写、TTS、全模态模型、模型发现下载、P2P 远程访问和会话压缩</strong>。</div>
+<div class="card"><span class="kpi">修复共性</span>最棘手的问题并非单点算法错误，而是<strong>跨层不变量失效</strong>：GPU 同步、图与内存生命周期、融合后的别名、数值全定义域、缓存边界和整数符号。</div>
+</div>
+<div class="note danger"><b>升级兼容性提醒：</b>v0.7.0 将 server 默认端口从 8080 改为 <code>9931</code>；格式化聊天输出由单字符串改为 parts 数组。依赖旧端口或旧响应结构的客户端要先适配。Docker 容器内部仍保留 8080。</div>
+<p class="small muted">口径：扫描 v0.7.0 到 b11944 的 275 个提交标题，并重点核对官方 Release、PR 与关联 Issue。下文是高价值筛选，不是 275 项逐条流水账。性能数字均来自 PR 作者的特定硬件、模型和参数，不应视为普遍收益承诺。</p>
+</section>
+<section>
+<h2>二、最新新增 Feature</h2>
+<h3>2.1 v0.7.0：稳定版已经具备的核心能力</h3>
+<div class="tablebox"><table>
+<thead><tr><th>方向</th><th>新增内容与价值</th><th>工程要点 / 来源</th></tr></thead>
+<tbody>
+<tr><td><b>MoE 专家 GPU 缓存</b><br><span class="tag green">高性价比</span></td><td>对保留在主机内存中的 MoE（混合专家）专家建立 GPU 缓存，命中时直接在 GPU 计算，未命中才上传。小批量（≤32 tokens）走缓存路径，大批量仍走常规 offload。RTX 5090、Qwen3.8-Flash-Next、约 18.6 GiB 缓存与 89% 命中率时，作者报告 <span class="num">2.20×</span> 解码速度。</td><td><code>--moe-cache-mib N</code>；实验中“专家总大小的约 10%”是可用起点，不是通用最优值。<br><a href="https://github.com/ggml-org/llama.cpp/pull/29887">#29887</a>；多 GPU 共享 <a href="https://github.com/ggml-org/llama.cpp/pull/30112">#30112</a></td></tr>
+<tr><td><b>投机解码扩展</b></td><td>新增 LiliCorr：在 DFlash 之上用小型 draft transformer 选择候选；GLM5-Next 新增 MTP（Multi-Token Prediction，多 token 预测）与优化稀疏注意力路径。目标是让一次主模型验证接受多个草稿 token。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/30506">#30506</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/29928">#29928</a>；后续 DFlash2 概率草稿见 <a href="https://github.com/ggml-org/llama.cpp/pull/30663">#30663</a></td></tr>
+<tr><td><b>新模型与多模态</b></td><td>K2 Horizon（Dense/MoVA）、Prism Bonsai 2 27B 三值模型、EmbeddingGemma-2（文本/视觉/音频嵌入）、MiniCPM-V 4.7、Nemotron Super 3.5 VL / Bolt、maion-coder，以及多类 decision model。</td><td>完整清单见 <a href="https://github.com/ggml-org/llama.cpp/releases/tag/v0.7.0">v0.7.0 Release</a>；代表性 PR：<a href="https://github.com/ggml-org/llama.cpp/pull/29535">#29535</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/30054">#30054</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/29416">#29416</a></td></tr>
+<tr><td><b>RPC 张量并行</b></td><td>RPC server 支持 <code>-sm tensor</code>，把张量切分到远程 RPC 设备，而不只是按层分配；RPC 协议升级至 v8。</td><td>适合网络多机/多设备切分，但性能仍受链路带宽与延迟约束。<br><a href="https://github.com/ggml-org/llama.cpp/pull/26610">#26610</a></td></tr>
+<tr><td><b>Server 会话与缓存</b></td><td>聊天层重构为 <code>common_chat_session</code> 的 <code>feed()/finish()</code>；输出改为 parts；slot 保存/恢复保留 context checkpoint 与 draft state，prompt cache 仅保存可恢复状态，并修复多个恢复调度边界。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/30210">#30210</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/30389">#30389</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/26004">#26004</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/30498">#30498</a>；默认端口 <a href="https://github.com/ggml-org/llama.cpp/pull/30159">#30159</a></td></tr>
+<tr><td><b>WebUI Models Manager</b></td><td>统一模型表格、量化版本展开、搜索/筛选/排序/收藏、加载/卸载、删除、隐藏、下载进度和模型配置侧栏。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/29583">#29583</a></td></tr>
+</tbody></table></div>
+<h3>2.2 v0.7.0 之后：b11944 中已合入、但尚属预发布的能力</h3>
+<div class="tablebox"><table>
+<thead><tr><th>Feature</th><th>具体新增</th><th>判断 / 来源</th></tr></thead>
+<tbody>
+<tr><td><b>LFM3 家族</b></td><td>LFM3-1.7B 文本与 LFM3-VL-2B 视觉模型已核对参考实现的 logprobs、工具调用、结构化输出和图像输入；后续 PR 扩展 Audio/Omni，覆盖流式音频输入输出、ASR/TTS 等。视频输入仍是后续项。</td><td>新模型支持不只是“能加载”，还包含 tokenizer、chat template、图构建和多模态路径。<br><a href="https://github.com/ggml-org/llama.cpp/pull/31252">#31252</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/31257">#31257</a></td></tr>
+<tr><td><b>新架构持续推进</b></td><td>DeepSeek V4.1 Flash（含转换、MTMD 视觉和 DSpark/DFlash 草稿路径）、Muse Spark Open（文本/视觉/音频、大型 MoE、面向长上下文）、SenseNova U1 动态分辨率图像理解等。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/31086">#31086</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/30616">#30616</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/28919">#28919</a></td></tr>
+<tr><td><b>实时转写与 TTS</b></td><td><code>mtmd_audio_stream</code> 支持有状态小音频块与 Voxtral Realtime；server 增加 OpenAI 兼容 <code>/v1/realtime</code> WebSocket API。另有 Soprano-1.1-80M 的 <code>llama-tts</code> 和 server <code>POST /tts</code>，支持流式输出及说话人参考音频。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/30629">#30629</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/30636">#30636</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/28607">#28607</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/26603">#26603</a><br>实时功能应重点压测首包、背压、空闲休眠与多会话。</td></tr>
+<tr><td><b>HF 模型发现与续传</b></td><td>WebUI 可搜索/筛选 Hugging Face GGUF，查看 README、统计和量化内存适配；下载自动匹配 DFlash/MTP 草稿 sidecar，暂停/续传可跨重启恢复。Discover 默认关闭。</td><td>这是从“模型运行器”向“模型管理器”演进的关键一步。<br><a href="https://github.com/ggml-org/llama.cpp/pull/29584">#29584</a></td></tr>
+<tr><td><b>会话压缩</b></td><td>通过 <code>/compact</code> 或上下文按钮生成摘要并以摘要续聊，同时保留完整历史；自动压缩尚未包含。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/27401">#27401</a></td></tr>
+<tr><td><b>LAN 外 P2P 访问</b></td><td><code>llama-server --connect</code> 通过 WebRTC 建立端到端加密 P2P 连接，tracker 只负责信令；需要独立的 <code>llama-connect</code> Rust 二进制，避免把大量第三方依赖塞进主工程。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/28277">#28277</a>；属于显式启用能力，部署时仍需审计外部二进制与信令基础设施。</td></tr>
+<tr><td><b>Agent / API 能力发现</b></td><td>工具接口增加 <code>defer_loading</code> 与 <code>tool_reference</code>；<code>/props</code> 暴露模板实际支持的 <code>reasoning_effort_levels</code>。探测方式是比较不同 effort 与未知值的模板渲染，并将相同渲染归为 alias。</td><td><a href="https://github.com/ggml-org/llama.cpp/pull/31256">#31256</a>、<a href="https://github.com/ggml-org/llama.cpp/pull/31271">#31271</a>（b11944 的最新提交）</td></tr>
+</tbody></table></div>
+<h3>2.3 值得关注的性能改进</h3>
+<div class="tablebox"><table>
+<thead><tr><th>优化</th><th>方案</th><th>作者报告的结果</th></tr></thead>
+<tbody>
+<tr><td>MoE LRU → 50/50 SLRU <a href="https://github.com/ggml-org/llama.cpp/pull/30637">#30637</a></td><td>分段 LRU 将稳定专家与波动专家隔离，降低偶发访问把常用专家挤出的概率。</td><td>两款 GPU、两类模型上约 <span class="num">+1%～5%</span>，未观察到回退。</td></tr>
+<tr><td>DFlash2 概率草稿 <a href="https://github.com/ggml-org/llama.cpp/pull/30663">#30663</a></td><td>非零温度下按概率生成草稿，复用 verify–accept–reject 流程，而不是只取确定性的候选。</td><td>多数场景个位数增益；RTX 5090、Muse-Glimmer-30B、温度 1.0 时 <span class="num">+12.33% t/s</span>，个别温度点也有回退。</td></tr>
+<tr><td>CUDA 低位宽 MMVQ <a href="https://github.com/ggml-org/llama.cpp/pull/30517">#30517</a></td><td>优化低比特矩阵向量乘路径。</td><td>Qwen3.5-9B Q3_K_S tg128：A16 <span class="num">1.73×</span>、RTX 3090 <span class="num">1.56×</span>。</td></tr>
+<tr><td>CUDA FFN 融合至 MMQ <a href="https://github.com/ggml-org/llama.cpp/pull/29948">#29948</a></td><td>合并 gate/up 矩阵乘与 GLU，减少 kernel launch 和中间流量。</td><td>pp16384：DGX Spark <span class="num">+4.6%～10.7%</span>，RTX 5090 <span class="num">+1.9%～4.7%</span>。</td></tr>
+<tr><td>SYCL Graph 复用 <a href="https://github.com/ggml-org/llama.cpp/pull/28725">#28725</a></td><td>可选 record/replay，避免重复录图。</td><td>A770/i915、指定 7B Q6_K decode 从 29.12 到 <span class="num">44.28 t/s</span>；xe 驱动收益较小。</td></tr>
+<tr><td>CPU concat 重写 <a href="https://github.com/ggml-org/llama.cpp/pull/31179">#31179</a></td><td>按目标行并行并支持量化类型，消除 delta-net 输入拼接热点。</td><td>局部 concat <span class="num">22.4 ms → 0.14 ms</span>；指定模型 pp512 从 125 到 146 t/s，TG 不变。</td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>三、最 Tricky 的 Fixed Issues：根因与方案</h2>
+<p class="muted">以下按“跨层机制是否难发现、触发条件是否隐蔽、修复是否具有代表性”筛选，而不是按 PR 行数排序。事实上，多处关键修复只有 1～3 行。</p>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30243">1. #30243 · 正则替换被长输入变成远程栈溢出</a></h3><span class="rank">Server / 安全健壮性</span></div>
+<p><span class="tag red">崩溃</span> <span class="tag amber">不可信输入</span> <code>/v1/systemone</code> 在 Linux 处理 d1-omni 请求时，形如 <code>&lt;|</code> 加 30,000 个字母的 state 会让 HTTP 线程 SIGSEGV；macOS 的 libc++ 不受影响。</p>
+<div class="flow"><div><b>根因</b>libstdc++ 的 <code>std::regex_replace</code> 对名称逐字符递归，调试显示每字符约 3 个栈帧，8 MB 栈被耗尽；而且转义发生在请求大小检查之前。</div><div class="fix"><b>方案</b>用线性手写扫描器替换正则，保持相同 <code>&lt;|name|&gt;</code> 转义语义，每字节最多读取两次；不是简单放大栈或加输入阈值。</div></div>
+<p class="verify">验证：19,531 个短字符串与旧正则做差分，另测 100 万字符名称；旧实现会崩溃，新实现返回正常的“输入过大”HTTP 500 且服务存活。相关深层 JSON 嵌套由 #30242 单独处理。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30107">2. #30107 · Vulkan TOP_K：非有限值让搜索进入未初始化状态</a></h3><span class="rank">GPU / 数值全定义域</span></div>
+<p><span class="tag red">设备复位</span> <span class="tag amber">错误索引</span> +inf/NaN 未被桶计数后，NVIDIA 可挂起到驱动复位，AMD 返回错误索引；另一个独立问题是 k=1 时全负值排序反向。</p>
+<div class="flow"><div><b>根因</b>浮点被映射为有序 uint 后分桶缩小范围，但初始区间上界刚好排除 +inf 和 NaN；没有桶达到阈值后，shader 继续使用未初始化 shared state。k=1 快路径又把 float 位模式当有符号整数比较，负值顺序因此颠倒。</div><div class="fix"><b>方案</b>读取时把 NaN 映射为 -inf；初始范围扩到整个 uint 域；对顶端桶的 2³² 终点做钳制避免回绕；k=1 改为直接比较 float。</div></div>
+<p class="verify">验证：新增 +inf、-inf 和负值用例后，Radeon 上 TOP_K 从 525/531 变为 531/531。NaN 不与 CPU 的未定义排序结果做对照。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/26771">3. #26771 / Issue #26738 · CUDA Graph 重放已经归还给驱动的地址</a></h3><span class="rank">GPU / 生命周期</span></div>
+<p><span class="tag red">Page fault</span> <span class="tag amber">窄条件组合</span> 深上下文、legacy pool（无 VMM）、启用 graphs、<code>-fa 0</code>、MoE 部分 CPU offload 和足够碎片同时出现时，pool flush 后 GPU 访问不存在页面。</p>
+<div class="flow"><div><b>根因</b>CUDA Graph capture 固定记录 scratch buffer 地址；分配器 <code>clear_pool()/cudaFree</code> 只知道内存被释放，不知道已捕获图仍保存地址，后续 replay 向 stale pointer 写入。</div><div class="fix"><b>方案</b>在“分配失败后的 clear_pool”和“pool 满时的 cudaFree”两条真实释放路径上，按 context 清空 CUDA graphs，强制下次重新 capture；避免跨设备过度失效。</div></div>
+<p class="verify">验证：ROCm Vega 56 同一 benchmark 的 5 次 flush 都触发图重捕获并完成；与关闭 graphs 的绕行方案相比性能无回退。pool-full 第二路径未能实际构造，作者明确标为未实测。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30573">4. #30573 · Flash Attention 缺少“读后到下次写前”的 WAR 屏障</a></h3><span class="rank">CUDA / 并发</span></div>
+<p><span class="tag amber">潜在错值</span> <span class="tag blue">测试全绿也会出错</span> hsk=256、nb=1 时 compute-sanitizer 报 WAR（Write After Read，写后读反向时序） hazard，但作者尚未观察到错误输出。</p>
+<div class="flow"><div><b>根因</b>KV 循环复用 shared KQ buffer。已有 warp barrier 只保证“写分数完成后再读并累积 V”，却没有阻止部分 lane 在下一轮提前覆盖其他 lane 仍在读取的位置。</div><div class="fix"><b>方案</b>在循环末尾增加 <code>ggml_cuda_syncwarp()</code>，保证所有 lane 读完再进入下一轮写。由于访问限制在写入 warp 内，warp barrier 足够，无需更重的 block 同步。</div></div>
+<p class="verify">验证：RTX 3090 racecheck 的 8,007,424 条 WAR 警告降至 0；完整 FLASH_ATTN_EXT 3,993/3,993 通过。修复前 38 项选定正确性测试也全过，说明 sanitizers 不可替代。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30795">5. #30795 · Metal 融合把合法内存复用变成同 dispatch 竞态</a></h3><span class="rank">Metal / 图优化与别名</span></div>
+<p><span class="tag amber">罕见非确定错值</span> 融合 <code>MOE_REDUCE</code> 同时读取 experts/weights 并写 dst；当 dst 与输入别名时，不同 threadgroup 会并发读写同一内存。</p>
+<div class="flow"><div><b>根因</b>分配器按未融合图计算 tensor liveness：早期节点已完全消费输入，因此把输入内存回收给 dst 原本合法。融合后多个阶段变成单次 dispatch，原来的生命周期假设不再成立。</div><div class="fix"><b>方案</b>encode 时用 <code>ggml_metal_fusion_overlap</code> 检查 dst 与 experts 或 weights 是否重叠；重叠就拒绝融合，回退始终正确的未融合 MUL+ADD，而不是试图保留高风险优化。</div></div>
+<p class="verify">验证：kolibri 架构路径可复现。这个案例的关键是“优化改变并发与生命周期语义”，不能只比较融合前后的数学公式。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30106">6. #30106 / Issue #28637 · Vulkan tile 与 subgroup 宽度假设失配</a></h3><span class="rank">Vulkan / 越界与漏算</span></div>
+<p><span class="tag red">跨 tile 越界写</span> <span class="tag amber">硬件相关</span> subgroup-16 Mali 上小矩阵出现非确定错值；subgroup-8 的部分 ID tile 又会漏算行。</p>
+<div class="flow"><div><b>根因</b>小 tile 的 WM 被固定为 32，或 8-wide subgroup 时固定为 8，没有同时满足 BLOCK_SIZE、WARP 和 subgroup 的 tiling 恒等式。Mali 上 workgroup 的第二个 subgroup 会写入下一个 tile 的列，形成 race。</div><div class="fix"><b>方案</b>按各 tile 参数推导 <code>WM = 32 × WARP / BLOCK_SIZE</code>，确保一个 subgroup 只负责一个 warp tile，消除跨 tile 写入和未覆盖区域。</div></div>
+<p class="verify">验证：Pixel 9 上修复前 20 个 MUL_MAT、6 个 MUL_MAT_ID 失败，修复后全部通过。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30580">7. #30580 · SWA 缓存恢复阈值多要了两个 cell</a></h3><span class="rank">Server / 状态边界</span></div>
+<p><span class="tag amber">性能回退</span> Gemma 4 slot restore 后，本应复用的状态被拒绝并回滚到更早 checkpoint，导致下一轮重复处理大量 token。</p>
+<div class="flow"><div><b>根因</b>SWA（Sliding Window Attention，滑动窗口注意力）保存状态只保留窗口内 cell，起点为 <code>pos_max - n_swa + 1</code>。首个待评估 token 只需访问 <code>pos - n_swa</code> 之后的位置，但复用判断使用了更严的 <code>pos_min &lt; pos - n_swa</code>，额外要求两个 cell。</div><div class="fix"><b>方案</b>让 SWA reuse threshold 与实际窗口语义一致；非 SWA 的 recurrent state 仍保留原来的精确边界，因为状态必须恰好结束在待评估 token 之前。</div></div>
+<p class="verify">验证：slot save/erase/restore 后重算 token 从 71 降到 23；RAM prompt cache 会话切换从 53 降到 17，并新增窗口恢复回归测试。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30453">8. #30453 · Meta arena 重分配后仍使用旧 subgraph</a></h3><span class="rank">图执行 / 内存所有权</span></div>
+<p><span class="tag red">Segfault</span> <span class="tag amber">容量组合依赖</span> 多 GPU 张量切分实验中，后续 graph 即使仍处在 max_subgraphs/max_nnodes 限制内，也可能访问已释放或过小的 subgraph。</p>
+<div class="flow"><div><b>根因</b><code>max_nnodes_raised</code> 触发时没有完整重建后续 subgraph；另一种“subgraph 更多但节点更少”的情况又会按当前 <code>n_nodes &lt; max_nnodes</code> 跳过重建，忽略 slot 数量或容量已不匹配。</div><div class="fix"><b>方案</b>arena 发生重分配时统一重建全部 subgraph，而不是只重建部分或仅凭节点数判断无需处理；添加覆盖两种容量组合的分配测试。</div></div>
+<p class="verify">验证：新增 test-alloc 用例。难点多维容量各自看似合法，但对象实际地址与槽位容量已经变化。</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/pull/30135">9. #30135 · 负 offset 经无符号回绕绕过边界检查</a></h3><span class="rank">Core / 整数与内存安全</span></div>
+<p><span class="tag red">OOB write</span> <code>ggml_acc/ggml_set</code> 可在目标 buffer 之前读写 4 字节；RPC GRAPH_COMPUTE 路径也可能从线上复制未经验证的 op_params。</p>
+<div class="flow"><div><b>根因</b><code>op_params[3]</code> 实为 int32_t，却直接读入 size_t。-4 符号扩展成巨大无符号数，现有边界断言发生回绕后反而通过，最终写指针落到 dst 前方。</div><div class="fix"><b>方案</b>先按 int32_t 读取，断言 offset 非负，再转换为 size_t；应用于 acc_f32、set_f32 和 set_i32。关键不是再补一个更大的上限，而是先验证符号域。</div></div>
+<p class="verify">验证：ASan 在 op_params[3]=-4 时原实现报告 heap-buffer-overflow；补丁后同一输入立即触发 GGML_ASSERT，阻止越界访问。</p></article>
+</div>
+</section>
+<section>
+<h2>四、可复用的工程经验与升级建议</h2>
+<div class="tablebox"><table>
+<thead><tr><th>问题模式</th><th>应检查的不变量</th><th>推荐验证</th></tr></thead>
+<tbody>
+<tr><td>共享内存 / 流水线</td><td>不仅“写后才读”，还要“读完才能下一轮写”。</td><td>racecheck/compute-sanitizer + 常规正确性套件；不能只看输出。</td></tr>
+<tr><td>CUDA Graph / 缓存对象</td><td>任何真实释放地址的路径，都必须让保存该地址的图失效。</td><td>制造 pool flush、碎片、深上下文，并检查 recapture 日志。</td></tr>
+<tr><td>图融合</td><td>融合后重新审查 liveness、alias、同步和中间结果可见性。</td><td>强制构造 dst/input 重叠；保留正确未融合回退。</td></tr>
+<tr><td>GPU 数值算法</td><td>输入域必须覆盖 ±inf、NaN、全负值和桶端点回绕。</td><td>非有限值、边界值、多 subgroup、多后端对照。</td></tr>
+<tr><td>KV / prompt cache</td><td>恢复条件要由真实注意力窗口和状态语义推导，不能沿用通用阈值。</td><td>统计恢复后的重算 token，而不只检查“恢复成功”。</td></tr>
+<tr><td>外部输入与整数</td><td>先验证符号和范围，再转换无符号类型；避免对不可信长输入使用递归正则。</td><td>ASan、超长输入、恶意 op_params、差分测试。</td></tr>
+</tbody></table></div>
+<div class="note info"><b>P0 · 升级前：</b>固定版本来源，明确使用稳定版还是预发布；适配默认端口 9931 和聊天 parts 输出。需要旧行为时可显式配置 <code>--port 8080</code>，不要依赖默认值。</div>
+<div class="note good"><b>P1 · 性能落地：</b>MoE 大量 offload 且 decode 批量较小时，优先评估 <code>--moe-cache-mib</code>。从专家总量约 10% 起步做命中率与端到端 t/s 扫描；若不需要，移除该参数即可回退。不要把 2.2× 直接套到不同模型、PCIe 或批量。</div>
+<div class="note"><b>P1 · 预发布验证：</b>实时音频重点测首段音频竞态、客户端快于解码的背压、空闲休眠和多会话；P2P 重点审计外部 llama-connect、API key 和断线状态。生产回退最稳妥的方式是保留 v0.7.0/b11669 工件与旧配置，而不是只回退单个 PR。</div>
+</section>
+<section>
+<h2>五、术语速查</h2>
+<div class="tablebox"><table><tbody>
+<tr><td><b>GGUF</b></td><td>GGML Universal Format，llama.cpp 生态常用的模型权重与元数据格式。</td><td><b>MoE</b></td><td>Mixture of Experts，混合专家；每个 token 只激活部分专家，权重常远大于实际每步计算量。</td></tr>
+<tr><td><b>LRU / SLRU</b></td><td>最近最少使用 / 分段最近最少使用缓存；后者把稳定与波动对象分段，降低缓存污染。</td><td><b>MTP / DFlash / LiliCorr</b></td><td>多 token 预测及草稿生成技术；草稿先提出候选，主模型验证并接受或拒绝。</td></tr>
+<tr><td><b>KV cache / slot</b></td><td>缓存历史注意力的 Key/Value；server 用 slot 管理会话状态与恢复。</td><td><b>SWA</b></td><td>Sliding Window Attention，滑动窗口注意力，只保留有限历史窗口。</td></tr>
+<tr><td><b>CUDA Graph</b></td><td>预先捕获 GPU 操作图并重复执行，降低启动开销，但会保存地址等资源假设。</td><td><b>WAR / OOB</b></td><td>Write After Read，读尚未完成就被覆盖；Out of Bounds，越界访问。</td></tr>
+<tr><td><b>MTMD</b></td><td>llama.cpp 的多模态输入处理子系统。</td><td><b>RPC / WebRTC</b></td><td>远程过程调用后端 / 带端到端加密的实时点对点连接技术。</td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>六、主要一手来源</h2>
+<ul class="toc">
+<li><a href="https://github.com/ggml-org/llama.cpp/releases/tag/v0.7.0">v0.7.0 官方稳定版 Release</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/releases/tag/b11944">b11944 官方预发布 Release</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/compare/v0.7.0...b11944">v0.7.0…b11944 官方 Compare</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/29887">MoE GPU cache #29887</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/30243">regex stack overflow #30243</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/30107">Vulkan TOP_K #30107</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/issues/26738">CUDA page fault Issue #26738</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/30573">CUDA WAR race #30573</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/30795">Metal fusion alias #30795</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/30106">Vulkan subgroup #30106</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/30580">SWA restore #30580</a></li>
+<li><a href="https://github.com/ggml-org/llama.cpp/pull/30453">Meta arena #30453</a></li>
+</ul>
+</section>
+<div class="footer">生成时间：2026-10-28（UTC+8）。仅依据 GitHub 一手资料整理；“最新”以本次调研时点的 v0.7.0 与 b11944 为准。项目迭代很快，后续构建可能继续改变行为。</div>
+</main></body></html>
