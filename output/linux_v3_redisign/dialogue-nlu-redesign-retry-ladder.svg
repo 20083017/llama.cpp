@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 820" width="100%" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img">
+<title>单次 LLM 调用、统一兜底与终态计数</title>
+<desc>已明确的文档方向，非运行证据：保留 nlu_10，每次进入真实 LLM 路径的请求只调用一次，不自动重试。unknown、格式错误和超时共用既有 DM 兜底并保留原因；取消独立终止；终态计数不重复累计。</desc>
+<rect width="1000" height="820" fill="#16191f"/>
+<defs><marker id="result-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#85B7EB" stroke-width="1.5"/></marker></defs>
+<text x="40" y="42" font-size="22" fill="#EDEDF2">单次调用 · 失败计数 · 既有 DM 兜底</text>
+<text x="40" y="72" font-size="14" fill="#B4B2A9">文档方向已明确；不证明代码已实现，也不授权产品修改或资源扩容。</text>
+<rect x="340" y="105" width="320" height="90" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="356" y="132" font-size="16" fill="#85B7EB">一次 LLM 调用</text>
+<text x="356" y="157" font-size="14" fill="#B4B2A9">保留 nlu_10 与既有请求构建。</text>
+<text x="356" y="180" font-size="14" fill="#B4B2A9">不补发请求，不反馈后再次生成。</text>
+<rect x="340" y="235" width="320" height="75" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="356" y="262" font-size="16" fill="#85B7EB">结果分类</text>
+<text x="356" y="287" font-size="14" fill="#B4B2A9">业务拒识、技术失败、取消分别标识。</text>
+<rect x="30" y="365" width="260" height="160" rx="9" fill="#1F242C" stroke="#97C459"/>
+<text x="46" y="392" font-size="16" fill="#97C459">有效语义</text>
+<text x="46" y="417" font-size="14" fill="#B4B2A9">进入正常 DM。</text>
+<text x="46" y="440" font-size="14" fill="#B4B2A9">按既有业务处理与历史准入。</text>
+<text x="46" y="463" font-size="14" fill="#B4B2A9">不把格式通过当成动作许可。</text>
+<rect x="320" y="365" width="360" height="160" rx="9" fill="#1F242C" stroke="#FAC775"/>
+<text x="336" y="392" font-size="16" fill="#FAC775">无可用语义 → 既有 DM 兜底</text>
+<text x="336" y="417" font-size="14" fill="#B4B2A9">模型 unknown / 格式错误 / 超时。</text>
+<text x="336" y="440" font-size="14" fill="#B4B2A9">保留不同原因，不伪造模型输出。</text>
+<text x="336" y="463" font-size="14" fill="#B4B2A9">调用故障沿用既有错误/兜底合同。</text>
+<text x="336" y="486" font-size="14" fill="#B4B2A9">不执行残缺或无效语义。</text>
+<rect x="710" y="365" width="260" height="160" rx="9" fill="#1F242C" stroke="#F09595"/>
+<text x="726" y="392" font-size="16" fill="#F09595">取消 → 独立终止</text>
+<text x="726" y="417" font-size="14" fill="#B4B2A9">执行既有清理。</text>
+<text x="726" y="440" font-size="14" fill="#B4B2A9">不默认进入 DM 或追加响应。</text>
+<text x="726" y="463" font-size="14" fill="#B4B2A9">不承诺远端引擎已经停止。</text>
+<path d="M500 195 V232" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M340 270 H160 V362" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M500 310 V362" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M660 270 H840 V362" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<rect x="30" y="595" width="940" height="95" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="46" y="622" font-size="16" fill="#85B7EB">单一 owner 记录 NLU 终态：一个准入处理的同一终态只累计一次</text>
+<text x="46" y="647" font-size="14" fill="#B4B2A9">有效结果 / unknown / 格式错误 / 超时 / 传输或服务错误 / 取消，采用固定低基数分类。</text>
+<text x="46" y="670" font-size="14" fill="#B4B2A9">unknown 是业务拒识，不计作技术失败；backend、manager、DM 不重复累计同一失败。</text>
+<path d="M160 525 V560 H500 V592" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M500 525 V592" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M840 525 V560 H500" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<rect x="30" y="720" width="940" height="75" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="46" y="747" font-size="16" fill="#85B7EB">容量与完成边界</text>
+<text x="46" y="772" font-size="14" fill="#B4B2A9">依据失败分类、QPS、排队与尾延迟改善质量或容量；不靠重试增加负载，历史仍由既有 owner 准入。</text>
+</svg>

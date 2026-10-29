@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linux Dialogue V3 · NLU 增量优化讨论与文档校准</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 16px 64px;
+    background: #16191f; color: #D3D1C7;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.75;
+  }
+  .page { max-width: 960px; margin: 0 auto; }
+  header { padding: 36px 0 8px; border-bottom: 1px solid #39414d; }
+  header h1 { font-size: 22px; font-weight: 600; margin: 0 0 10px; color: #EDEDF2; }
+  header .meta { color: #8D97A8; font-size: 12.5px; }
+  nav { padding: 14px 0; border-bottom: 1px solid #39414d; font-size: 13px; }
+  nav a { color: #85B7EB; text-decoration: none; margin-right: 18px; white-space: nowrap; }
+  nav a:hover { text-decoration: underline; }
+  h2 { font-size: 18px; font-weight: 600; color: #EDEDF2; margin: 44px 0 6px; padding-top: 8px; border-top: 1px solid #2A2F38; }
+  h2 .no { color: #85B7EB; margin-right: 8px; }
+  h3 { font-size: 15.5px; font-weight: 600; color: #EDEDF2; margin: 28px 0 6px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 24px; }
+  li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13px; }
+  th, td { border: 1px solid #39414d; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #1F242C; color: #C8CFDB; font-weight: 600; }
+  td { background: #1A1E24; }
+  code { font-family: Consolas, "JetBrains Mono", monospace; font-size: 12.5px; background: #22262E; border: 1px solid #39414D; border-radius: 4px; padding: 1px 5px; color: #E3B34D; }
+  pre { background: #1A1E24; border: 1px solid #39414D; border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.6; }
+  pre code { background: none; border: none; padding: 0; color: #C9D4E3; }
+  .fig { background: #1A1E24; border: 1px solid #39414D; border-radius: 10px; padding: 18px 14px 8px; margin: 18px 0; }
+  .fig svg { width: 100%; height: auto; display: block; }
+  .fig .cap { text-align: center; color: #8D97A8; font-size: 12px; padding: 8px 0 6px; }
+  .badge { display: inline-block; font-size: 11.5px; font-weight: 600; border-radius: 4px; padding: 1px 8px; margin-right: 8px; vertical-align: 1px; }
+  .b-p0 { background: #791F1F; color: #F7C1C1; }
+  .b-p1 { background: #633806; color: #FAC775; }
+  .b-p2 { background: #0C447C; color: #B5D4F4; }
+  .b-ok { background: #27500A; color: #C0DD97; }
+  .card { background: #1F242C; border: 1px solid #39414D; border-left: 3px solid #85B7EB; border-radius: 8px; padding: 14px 18px; margin: 16px 0; }
+  .card.warn { border-left-color: #F09595; }
+  .card.good { border-left-color: #97C459; }
+  .card p:first-child { margin-top: 0; }
+  .card p:last-child { margin-bottom: 0; }
+  .kv { color: #8D97A8; }
+  .field { color: #E3B34D; font-weight: 600; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #39414d; color: #6B7484; font-size: 12px; }
+  .toc { background: #1A1E24; border: 1px solid #39414D; border-radius: 8px; padding: 12px 20px; margin: 20px 0; font-size: 13.5px; }
+  .toc a { color: #85B7EB; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+<h1>Linux Dialogue V3 · NLU 增量优化讨论与文档校准</h1>
+<div class="meta">文档修订：2026-10-29 · 范围：本目录 HTML 与三张 SVG；不修改产品、配置、模型或部署。<br>
+参考基线：<code>feat/v3-nlu-linux</code> / <code>db06b066c412b0f5e7a7d043589c8012e86c96e1</code> 的本地校准文档。<br>
+证据等级：<b>PARTIAL</b>（文档对照）；增强方案标为 <b>HYPOTHESIS</b>。本次未重新读取权威源码、构建或验证运行环境。</div>
+</header>
+<nav><a href="#s0">0 结论与范围</a><a href="#s1">1 基线纠正</a><a href="#s2">2 边界与方案</a><a href="#s3">3 失败与预算</a><a href="#s4">4 配置与协议</a><a href="#s5">5 解析与观测</a><a href="#s6">6 建议顺序</a><a href="#s7">7 参考与待决项</a></nav>
+
+<h2 id="s0"><span class="no">0</span>结论与范围</h2>
+<div class="card good"><p><b>保留现有 manager / backend / codec / DM / 历史边界，先校准事实，再按证据补缺口。</b>生成约束值得评估，但不能以改变 nlu_10、削弱解析门或迁移历史 owner 为代价。本次讨论已明确：保留 nlu_10、单次模型调用、不自动重试；失败计数并进入既有兜底。此处仅更新文档，不代表代码已实现或获准开发部署。</p></div>
+<p>原讨论中的“marker 行 + JSON 体”“采样参数写死”“没有 HTTP 超时”和“全候选门意味着多次生成”与参考基线不一致。本版纠正这些前提，保留可靠性议题，撤下未经生产证据支持的 P0/P1/P2 故障分级。</p>
+<ul>
+<li><b>当前文档工作：</b>纠正叙述、同步图文、明确证据和待决项；不授权实现或外部操作。</li>
+<li><b>保留不变量：</b>完整有界输出、严格整组解析、既有业务和历史准入、每 session 正常轮次串行、不同 session 可并发。</li>
+<li><b>当前明确不做：</b>不新增 JSON codec，不做自动重试或反馈式再次生成；Android 引擎统一、训练及全管线替换也不在本次范围内。</li>
+</ul>
+<div class="card warn"><p><b>证据分层：</b>参考文档中的 CODE / CONTRACT 标记属于其固定修订，不自动成为本次的 CODE-CONFIRMED 或 RUNTIME-CONFIRMED 结论。原稿对 llama.cpp master、TensorRT-LLM、LLaMA-Factory 的概括不作为当前部署能力证明；后续引用须固定版本、接口与所选路径。</p></div>
+
+<h2 id="s1"><span class="no">1</span>基线纠正与待评估项</h2>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 870" width="100%" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img">
+<title>Linux V3 NLU：文档校准与待评估项</title>
+<desc>PARTIAL：基于固定修订的本地参考文档；不是已确认的生产故障分级。七项分别区分基线纠正和可选增强。</desc>
+<rect width="900" height="870" fill="#16191f"/>
+<defs><marker id="issue-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#85B7EB" stroke-width="1.5"/></marker></defs>
+<text x="40" y="42" font-size="22" fill="#EDEDF2">Linux V3 NLU · 先校准基线，再评估增强</text>
+<text x="40" y="72" font-size="14" fill="#B4B2A9">PARTIAL · 文档对照，不代表当前部署；建议不等于实施批准</text>
+<rect x="40" y="100" width="400" height="145" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="56" y="127" font-size="16" fill="#85B7EB">01 · wire 格式需纠正</text>
+<text x="56" y="151" font-size="14" fill="#B4B2A9">nlu_10 是 TAB 分列文本，不是 JSON 体。</text>
+<text x="56" y="172" font-size="14" fill="#B4B2A9">约束生成应匹配现有 descriptor。</text>
+<text x="56" y="193" font-size="14" fill="#B4B2A9">当前保留 nlu_10，不新增 JSON codec。</text>
+<rect x="460" y="100" width="400" height="145" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="476" y="127" font-size="16" fill="#85B7EB">02 · 后端能力不能由接口推断</text>
+<text x="476" y="151" font-size="14" fill="#B4B2A9">OpenAI-compatible ≠ llama-server。</text>
+<text x="476" y="172" font-size="14" fill="#B4B2A9">offline hook ≠ 指定 llama.cpp SDK。</text>
+<text x="476" y="193" font-size="14" fill="#B4B2A9">Linux 改善不强制 Android 换引擎。</text>
+<rect x="40" y="265" width="400" height="145" rx="9" fill="#1F242C" stroke="#FAC775"/>
+<text x="56" y="292" font-size="16" fill="#FAC775">03 · NLU 失败统一进入 DM 兜底</text>
+<text x="56" y="316" font-size="14" fill="#B4B2A9">unknown、格式错、超时共用 DM 兜底。</text>
+<text x="56" y="337" font-size="14" fill="#B4B2A9">保留原始原因；取消独立终止。</text>
+<text x="56" y="358" font-size="14" fill="#B4B2A9">不执行无效语义；历史仍按既有准入。</text>
+<rect x="460" y="265" width="400" height="145" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="476" y="292" font-size="16" fill="#85B7EB">04 · Profile 已承载生成参数</text>
+<text x="476" y="316" font-size="14" fill="#B4B2A9">temperature / top_p / top_k / max_tokens</text>
+<text x="476" y="337" font-size="14" fill="#B4B2A9">已在文档基线的选定 profile 中。</text>
+<text x="476" y="358" font-size="14" fill="#B4B2A9">复用现有 JSON，不另建平行配置树。</text>
+<rect x="40" y="430" width="400" height="145" rx="9" fill="#1F242C" stroke="#FAC775"/>
+<text x="56" y="457" font-size="16" fill="#FAC775">05 · HTTP 已有超时配置</text>
+<text x="56" y="481" font-size="14" fill="#B4B2A9">connect/total timeout 已有文档依据。</text>
+<text x="56" y="502" font-size="14" fill="#B4B2A9">端到端 deadline 与停止生成需另证。</text>
+<text x="56" y="523" font-size="14" fill="#B4B2A9">单次调用，失败计数，不自动重试。</text>
+<rect x="460" y="430" width="400" height="145" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="476" y="457" font-size="16" fill="#85B7EB">06 · 指标先核对覆盖再补缺口</text>
+<text x="476" y="481" font-size="14" fill="#B4B2A9">复用 Timeline、日志与已有指标。</text>
+<text x="476" y="502" font-size="14" fill="#B4B2A9">评估错误动作、格式失败和尾延迟。</text>
+<text x="476" y="523" font-size="14" fill="#B4B2A9">终态只计一次，拒识不混入技术失败。</text>
+<rect x="40" y="595" width="820" height="145" rx="9" fill="#1F242C" stroke="#FAC775"/>
+<text x="56" y="622" font-size="16" fill="#FAC775">07 · 三类“候选”不可混用</text>
+<text x="56" y="646" font-size="14" fill="#B4B2A9">解析风格、多意图帧、独立采样不同。</text>
+<text x="56" y="667" font-size="14" fill="#B4B2A9">文档路径读取 choices[0] 的正文。</text>
+<text x="56" y="688" font-size="14" fill="#B4B2A9">不由严格门推导 n 次生成成本。</text>
+<rect x="40" y="770" width="820" height="78" rx="9" fill="#1F242C" stroke="#97C459"/>
+<text x="56" y="797" font-size="16" fill="#97C459">保留边界</text>
+<text x="56" y="821" font-size="14" fill="#B4B2A9">完整有界输出 · 整组严格解析 · 既有 DM/历史准入 · 每 session 正常轮次串行，跨 session 可并行</text>
+</svg>
+<div class="cap">图 1 · 文档校准地图；不是已证实的生产故障列表</div></div>
+<table>
+<tr><th>议题</th><th>文档基线与纠正</th><th>建议 / 尚未证明</th></tr>
+<tr><td>01 · wire 格式</td><td>nlu_10 是 TAB 分列的 domain / intent / slots，包含 unknown / multi 标记，不是“marker 行 + JSON 体”。</td><td>约束生成应匹配现有 descriptor；JSON Schema 不能直接当作现有非 JSON wire 的语法。当前不新增 JSON codec，保持现有输出合同。</td></tr>
+<tr><td>02 · backend 与模板</td><td>OpenAI-compatible HTTP 不等于 llama-server；offline hook 不等于指定 llama.cpp 实现。</td><td>按实际 backend 固定能力。只有同模型、tokenizer、模板和渲染选项合同下，才讨论逐字节一致；GGUF 仅适用于使用它的 provider。</td></tr>
+<tr><td>03 · 统一兜底与写回</td><td>格式通过不等于可执行或可存历史；业务兜底与内部失败原因是不同维度。</td><td>文档方向：unknown、格式错误和超时共用既有 DM 拒识/兜底流程，保留原始原因；取消独立终止，历史仍按既有准入。当前映射是否已实现需源码核对。</td></tr>
+<tr><td>04 · 参数归属</td><td>temperature / top_p / top_k / max_tokens 已在选中 profile 中。</td><td>复用现有配置，按真实缺口扩展。温度、量化位宽、token 上限依评测选择，不写成通用最佳值。</td></tr>
+<tr><td>05 · 时限与取消</td><td>HTTP 已有 connect/total timeout；stream:false 不等于没有时间上界。offline 不保证强制中断卡死 provider。</td><td>端到端 deadline 的起止、排队/单次推理/完成预算，以及引擎停止能力仍需确定；1.5–2s 不是已批准指标。</td></tr>
+<tr><td>06 · 可观测性</td><td>未在原方案列出指标，不证明系统没有现有覆盖。</td><td>先盘点 Timeline / 日志 / 指标，再补具体缺口；同时看错误动作、格式失败、拒识与尾延迟。</td></tr>
+<tr><td>07 · “候选”含义</td><td>解析分隔风格、多意图帧、独立模型采样是三件事。文档 HTTP 路径读取 choices[0].message.content。</td><td>不从严格门推导 n 次生成；不凭 grammar 推导语义分歧下降。无需为此新增 candidates 参数。</td></tr>
+</table>
+<p>文档依据：<a href="../dialogue_v3/Dialogue_V3_NLU配置化方案_V1.5.md">配置说明 §§1–5</a>、<a href="../dialogue_v3/NLU接口使用说明.md">NLU 接口 §§2、5、6</a>。当前部署选择和权威源码增量尚未复核。</p>
+
+<h2 id="s2"><span class="no">2</span>现有边界与已明确方向</h2>
+<p>以下是功能与所有权示意，不是 Bazel 依赖图。展示所选真实 backend 的路径，不把 hotfix/mock 画成必经模型。共享 codec 的改动可能影响 Android，Linux 优先不等于可以忽略共享契约。</p>
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 930" width="100%" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img">
+<title>Linux V3 NLU：现有边界与可选增强</title>
+<desc>选定真实 backend 的概念流程，不是 BUILD 依赖图。失败分支不经过成功提交；模型结果先进入既有业务和历史准入。</desc>
+<rect width="1000" height="930" fill="#16191f"/>
+<defs><marker id="pipeline-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#85B7EB" stroke-width="1.5"/></marker></defs>
+<text x="40" y="42" font-size="22" fill="#EDEDF2">Linux V3 NLU · 保留现有 owner 的增量方向</text>
+<text x="40" y="72" font-size="14" fill="#B4B2A9">PARTIAL · 真实 backend 路径示意；hotfix/mock 为 Manager 独立分支，不必调用模型</text>
+<rect x="40" y="100" width="620" height="95" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="56" y="127" font-size="16" fill="#85B7EB">① 历史投影 → BuildRequest</text>
+<text x="56" y="151" font-size="14" fill="#B4B2A9">既有 policy 选择历史；codec 消费本次 NluLlmRequest.histories。</text>
+<text x="56" y="172" font-size="14" fill="#B4B2A9">profile + descriptor 构造请求；不另读存储、不新建会话缓存。</text>
+<rect x="40" y="235" width="620" height="95" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="56" y="262" font-size="16" fill="#85B7EB">② 选定 backend · 单次调用</text>
+<text x="56" y="286" font-size="14" fill="#B4B2A9">HTTP 解包 envelope；offline 按宿主合同收集有界文本。</text>
+<text x="56" y="307" font-size="14" fill="#B4B2A9">生成约束仅在 backend 能力确认后评估，不默认启用。</text>
+<rect x="40" y="370" width="620" height="115" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="56" y="397" font-size="16" fill="#85B7EB">③ 共享 codec 严格解析</text>
+<text x="56" y="421" font-size="14" fill="#B4B2A9">nlu_10：single / unknown / multi；按精确分隔风格解析。</text>
+<text x="56" y="442" font-size="14" fill="#B4B2A9">全部帧合法后返回规范化语义；不发布残缺子集。</text>
+<text x="56" y="463" font-size="14" fill="#B4B2A9">grammar 不能替代格式验证，也不能证明业务可执行。</text>
+<rect x="40" y="525" width="620" height="95" rx="9" fill="#1F242C" stroke="#97C459"/>
+<text x="56" y="552" font-size="16" fill="#97C459">④ 既有语义 / DM / AfterProcess</text>
+<text x="56" y="576" font-size="14" fill="#B4B2A9">业务接受与历史准入继续由既有外层负责。</text>
+<text x="56" y="597" font-size="14" fill="#B4B2A9">解析通过不是动作许可，也不是 Query 历史提交许可。</text>
+<rect x="40" y="660" width="620" height="115" rx="9" fill="#1F242C" stroke="#97C459"/>
+<text x="56" y="687" font-size="16" fill="#97C459">⑤ 既有完成与存储边界</text>
+<text x="56" y="711" font-size="14" fill="#B4B2A9">按既有条件处理 Turn 与合格 Query 的存储及失败结果。</text>
+<text x="56" y="732" font-size="14" fill="#B4B2A9">所需状态/历史工作结束并释放 session 所有权，才是轮次完成。</text>
+<text x="56" y="753" font-size="14" fill="#B4B2A9">首个流式片段、模型返回或解析成功均不等于完成。</text>
+<rect x="710" y="245" width="250" height="240" rx="9" fill="#1F242C" stroke="#FAC775"/>
+<text x="726" y="272" font-size="16" fill="#FAC775">统一兜底 · 保留原因</text>
+<text x="726" y="296" font-size="14" fill="#B4B2A9">格式错 / 超时 → DM 兜底</text>
+<text x="726" y="317" font-size="14" fill="#B4B2A9">unknown → 同一 DM 兜底</text>
+<text x="726" y="338" font-size="14" fill="#B4B2A9">保留原因，不伪造模型输出</text>
+<text x="726" y="359" font-size="14" fill="#B4B2A9">取消不默认进入 DM</text>
+<text x="726" y="380" font-size="14" fill="#B4B2A9">失败计数，不自动重试</text>
+<text x="726" y="401" font-size="14" fill="#B4B2A9">保留原始原因和调用时限</text>
+<text x="726" y="422" font-size="14" fill="#B4B2A9">不自行写入伪造成功语义</text>
+<path d="M350 195 V232" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+<path d="M350 330 V367" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+<path d="M350 485 V522" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+<path d="M350 620 V657" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+<path d="M660 280 H707" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+<path d="M660 425 H707" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+<rect x="40" y="815" width="920" height="86" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="56" y="842" font-size="16" fill="#85B7EB">线程与证据边界</text>
+<text x="56" y="866" font-size="14" fill="#B4B2A9">同 session 正常轮次不重叠；不同 session 可并发。QueryGuard 是内容检查，不是并发锁。</text>
+<text x="56" y="887" font-size="14" fill="#B4B2A9">本图依据文档基线；不证明部署选择、引擎取消能力、全局 request_id 唯一或 exactly-once。</text>
+</svg>
+<div class="cap">图 2 · 保留既有边界；可选能力不代表已经实现或激活</div></div>
+<h3>当前方向与排除项</h3>
+<table>
+<tr><th>范围</th><th>方向</th><th>原因 / 边界</th></tr>
+<tr><td>当前方向 · 加固现有 Linux V3</td><td>保留 nlu_10、既有模型接口、业务与历史 owner；每个真实推理请求只调用一次。</td><td>关注 QPS、资源成本和尾延迟；失败记录原因与终态计数，不追加推理。生成约束仍须先确认 backend 能力。</td></tr>
+<tr><td>当前不做 · 新 JSON codec</td><td>模型输出保持现有 TAB 分列协议，不改成 JSON 语义体。</td><td>HTTP 外层 JSON 与模型输出协议不是一回事。现有 nlu_10 已支持结构化单/多意图与槽位；新 JSON codec 不自动改善准确率或 QPS，反而需要模型兼容评测并可能增加输出 token。</td></tr>
+<tr><td>当前不做 · 自动重试</td><td>没有第二次生成、失败反馈重发或通过切换模型再调用一次的补偿路径。</td><td>避免故障期间放大负载；故障通过分类计数与诊断暴露，再改善模型、协议匹配或服务容量。</td></tr>
+<tr><td>范围外 · 替换管线 / 统一平台引擎</td><td>维持现有平台与 owner 边界。</td><td>不因本次文档方向增加 SDK、生命周期或部署耦合。</td></tr>
+</table>
+<h3>Design Card · 已明确的文档方向</h3>
+<table>
+<tr><th>项</th><th>内容</th></tr>
+<tr><td>场景 / 问题</td><td>提高 Linux V3 的 NLU 可靠性；先核实真实故障分布，而不是预设协议或框架必须替换。</td></tr>
+<tr><td>现有设计 / 不变量</td><td>manager 选择 backend，共享 codec 收敛到既有语义；严格整组解析、业务准入与历史准入保持独立。</td></tr>
+<tr><td>访问与线程</td><td>同 session 正常轮次串行，跨 session 可并发。每次准入处理最多发起一次真实模型调用；不新增全局串行锁或复用的计时容器。</td></tr>
+<tr><td>状态所有权 / 生命周期</td><td>ContextManager 是既有会话存储 owner；历史投影由 policy 在本次调用创建、codec 只读消费。请求正文与回调 buffer 属于本次 backend 调用，依已验证回调合同释放。provider 资源由宿主持有至所有准入调用结束和 Release 完成。</td></tr>
+<tr><td>唯一事实源</td><td>已准入 Query/语义由既有历史 owner 管理；模型消息是投影，不是第二份会话真相。失败原因仅用于本次结果和诊断，不拼成新反馈请求或会话历史。</td></tr>
+<tr><td>建议 / 扩展点</td><td>优先复用 profile、manager/backend/codec 和既有完成边界；只添加经证据支持的能力，不建立第二个 Gateway、history cache 或通用 registry。</td></tr>
+<tr><td>兼容 / 不变</td><td>保留 public/data/ABI、nlu_10、历史准入与存储格式、V2/Android 行为、GCC 4.9.3/C++11。端到端取消或新协议若改变这些边界，需另做架构选择。</td></tr>
+<tr><td>替代 / 风险 / 验证</td><td>已排除当前新增 JSON codec 和自动重试；关注错误动作、合法多意图损失、历史污染、尾延迟和 callback 生命周期。提高格式通过率不是独立的业务成功证据。</td></tr>
+<tr><td>决策状态</td><td>用户已明确文档方向：保留 nlu_10、单次调用、失败计数与既有 DM 兜底；尚未修改或验证产品实现，也未授权部署。</td></tr>
+</table>
+<div class="card warn"><p><b>不增加兼容层：</b>当前没有 JSON 模型输出转换成旧 nlu_10 的需求，不引入双协议、翻译层或第二份历史。复用既有 codec、错误字段与指标设施，不为了失败计数新建管理框架。</p></div>
+<p>完整轮次包括所需状态/历史工作与 session 所有权释放，不等于首个流式片段或模型返回。调用方可能在完成后使用同 request ID 重新提交；这与本次准入处理内部“不自动重试模型”是不同层次，不证明 ID 跨 session 全局唯一，也不提供 exactly-once 保证。参见 <a href="../dialogue_v3/One-in-Flight-per-Session-Design.md">one-in-flight 契约</a>。</p>
+
+<h2 id="s3"><span class="no">3</span>单次调用、失败分类与预算</h2>
+<div class="card good"><p><b>讨论已明确的文档方向：一个既有 DM 兜底流程，保留不同的内部原因。</b>模型返回 unknown、格式错误和推理超时，都可以收敛为业务上的“无可用语义”，交给既有 DM 拒识/兜底流程。不为三类原因新建三套 DM 机制。取消不属于这条统一兜底路径。</p></div>
+<h3>格式错误与超时分别指什么？</h3>
+<ul>
+<li><b>格式错误：</b>模型已返回文本，但不符合所选 nlu_10 协议，例如返回自然语言解释、缺少必需字段，或 <code>multi:music&lt;TAB&gt;pause;</code> 存在尾部空帧。结构合法但业务含义错误，不属于格式错误，仍由既有语义/业务处理判断。</li>
+<li><b>超时：</b>连接或推理调用超过配置时限，未能及时取得可接受结果；不是模型回答了 unknown。</li>
+<li><b>合法 unknown：</b>模型确实按协议返回拒识结果；其来源与格式错误、超时不同，但用户侧可使用同一兜底响应。</li>
+</ul>
+<pre><code>有效语义 ──────────────────→ 既有正常 DM
+模型返回 unknown ─┐
+格式错误 ─────────┼───────→ 同一既有 DM 拒识 / 兜底
+推理超时 ─────────┘
+取消 ─────────────────────→ 独立终止与清理</code></pre>
+<p>优先使用既有状态/错误字段和诊断日志保留原始原因，不因此要求新增结果类或框架。不要把失败的原始输出替换成字符串 <code>unknown</code> 再送 parser，伪装为模型成功返回。业务结果可以统一，原始证据和成功/失败统计不能混淆。</p>
+<p>统一兜底不执行无效或部分语义，不向模型历史写入伪造的成功语义；是否保存 Query 仍由既有历史准入决定。此处记录的是讨论方向，不代表现有代码已完成上述映射，也不授权产品修改；当前实现需另行核对。当前方向明确不自动重试；失败不触发新的模型调用。</p>
+
+<div class="fig"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 820" width="100%" font-family="Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img">
+<title>单次 LLM 调用、统一兜底与终态计数</title>
+<desc>已明确的文档方向，非运行证据：保留 nlu_10，每次进入真实 LLM 路径的请求只调用一次，不自动重试。unknown、格式错误和超时共用既有 DM 兜底并保留原因；取消独立终止；终态计数不重复累计。</desc>
+<rect width="1000" height="820" fill="#16191f"/>
+<defs><marker id="result-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#85B7EB" stroke-width="1.5"/></marker></defs>
+<text x="40" y="42" font-size="22" fill="#EDEDF2">单次调用 · 失败计数 · 既有 DM 兜底</text>
+<text x="40" y="72" font-size="14" fill="#B4B2A9">文档方向已明确；不证明代码已实现，也不授权产品修改或资源扩容。</text>
+<rect x="340" y="105" width="320" height="90" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="356" y="132" font-size="16" fill="#85B7EB">一次 LLM 调用</text>
+<text x="356" y="157" font-size="14" fill="#B4B2A9">保留 nlu_10 与既有请求构建。</text>
+<text x="356" y="180" font-size="14" fill="#B4B2A9">不补发请求，不反馈后再次生成。</text>
+<rect x="340" y="235" width="320" height="75" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="356" y="262" font-size="16" fill="#85B7EB">结果分类</text>
+<text x="356" y="287" font-size="14" fill="#B4B2A9">业务拒识、技术失败、取消分别标识。</text>
+<rect x="30" y="365" width="260" height="160" rx="9" fill="#1F242C" stroke="#97C459"/>
+<text x="46" y="392" font-size="16" fill="#97C459">有效语义</text>
+<text x="46" y="417" font-size="14" fill="#B4B2A9">进入正常 DM。</text>
+<text x="46" y="440" font-size="14" fill="#B4B2A9">按既有业务处理与历史准入。</text>
+<text x="46" y="463" font-size="14" fill="#B4B2A9">不把格式通过当成动作许可。</text>
+<rect x="320" y="365" width="360" height="160" rx="9" fill="#1F242C" stroke="#FAC775"/>
+<text x="336" y="392" font-size="16" fill="#FAC775">无可用语义 → 既有 DM 兜底</text>
+<text x="336" y="417" font-size="14" fill="#B4B2A9">模型 unknown / 格式错误 / 超时。</text>
+<text x="336" y="440" font-size="14" fill="#B4B2A9">保留不同原因，不伪造模型输出。</text>
+<text x="336" y="463" font-size="14" fill="#B4B2A9">调用故障沿用既有错误/兜底合同。</text>
+<text x="336" y="486" font-size="14" fill="#B4B2A9">不执行残缺或无效语义。</text>
+<rect x="710" y="365" width="260" height="160" rx="9" fill="#1F242C" stroke="#F09595"/>
+<text x="726" y="392" font-size="16" fill="#F09595">取消 → 独立终止</text>
+<text x="726" y="417" font-size="14" fill="#B4B2A9">执行既有清理。</text>
+<text x="726" y="440" font-size="14" fill="#B4B2A9">不默认进入 DM 或追加响应。</text>
+<text x="726" y="463" font-size="14" fill="#B4B2A9">不承诺远端引擎已经停止。</text>
+<path d="M500 195 V232" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M340 270 H160 V362" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M500 310 V362" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M660 270 H840 V362" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<rect x="30" y="595" width="940" height="95" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="46" y="622" font-size="16" fill="#85B7EB">单一 owner 记录 NLU 终态：一个准入处理的同一终态只累计一次</text>
+<text x="46" y="647" font-size="14" fill="#B4B2A9">有效结果 / unknown / 格式错误 / 超时 / 传输或服务错误 / 取消，采用固定低基数分类。</text>
+<text x="46" y="670" font-size="14" fill="#B4B2A9">unknown 是业务拒识，不计作技术失败；backend、manager、DM 不重复累计同一失败。</text>
+<path d="M160 525 V560 H500 V592" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M500 525 V592" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<path d="M840 525 V560 H500" fill="none" stroke="#85B7EB" stroke-width="1.5" marker-end="url(#result-arrow)"/>
+<rect x="30" y="720" width="940" height="75" rx="9" fill="#1F242C" stroke="#85B7EB"/>
+<text x="46" y="747" font-size="16" fill="#85B7EB">容量与完成边界</text>
+<text x="46" y="772" font-size="14" fill="#B4B2A9">依据失败分类、QPS、排队与尾延迟改善质量或容量；不靠重试增加负载，历史仍由既有 owner 准入。</text>
+</svg>
+<div class="cap">图 3 · 单次调用与终态计数；保留原 SVG 文件名以兼容引用，图中无重试路径</div></div>
+<table>
+<tr><th>结果</th><th>建议的边界</th><th>待核对内容</th></tr>
+<tr><td>合法语义 / 合法 unknown</td><td>有效语义进入正常 DM；模型返回 unknown 进入既有 DM 拒识/兜底流程。unknown 不是技术失败，不因拒识而自动重试。</td><td>当前正常、拒识与完成路径。</td></tr>
+<tr><td>格式 / 截断错误</td><td>无可用语义时进入同一 DM 兜底，保留格式失败原因；不执行剩余合法帧、不伪造模型返回 unknown。不重试、不反馈后再次生成，直接兜底并计入格式失败。</td><td>当前错误到 DM 的映射、格式诊断与历史准入。</td></tr>
+<tr><td>业务不接受</td><td>保留既有 DM/规范化决策；不要求模型重写答案。</td><td>格式失败与业务拒绝的分类边界。</td></tr>
+<tr><td>传输 / HTTP 服务故障</td><td>保留技术原因；不再次调用模型，不伪造 unknown 模型输出。</td><td>已有返回码、用户侧反馈与降级合同。</td></tr>
+<tr><td>超时</td><td>不再重试；进入同一 DM 兜底并保留超时原因。区分 connect timeout、单次 total timeout 与逻辑请求 deadline，不把超时计为模型成功返回 unknown。</td><td>当前超时到 DM 的映射与兜底完成预算；超时不一定耗尽全部预算，也不证明服务端停止计算。</td></tr>
+<tr><td>取消</td><td>独立终止与清理，不默认生成 unknown 后继续 DM/动作/新历史写入。</td><td>是否存在取消 API、引擎是否响应、已完成副作用及迟到结果如何处理；不可假定自动撤销。</td></tr>
+</table>
+<h3>单次调用与预算边界</h3>
+<ul>
+<li><b>一次的范围：</b>同一次准入处理进入真实 LLM 路径、且请求构建成功后，只发起一次模型调用。不二次采样、不附加失败反馈重发、不换模型补发。hotfix/mock、构建失败或调用前取消可能为零次调用，不应为满足“一次”强行调用。</li>
+<li><b>全链路核对：</b>后续实现核对需涵盖 Dialogue/backend、HTTP 客户端、代理及 provider 的自动重试配置。应用层没有重试循环不等于全链路没有隐藏重试；当前文档不宣称它们已关闭，也不授权调整这些组件。</li>
+<li><b>时间预算：</b>沿用已有 connect/total timeout；如补端到端 deadline，先定义起点、排队、单次推理、解析、兜底及完成阶段的预算。使用单调时钟，不在失败后重置时限，不使用半预算守卫来准入第二次调用。</li>
+<li><b>能力边界：</b>如果 SDK 无法中断，就不能承诺硬完成上界。客户端停止等待与引擎停止生成须分别验证；不得允许晚到 callback 绕过现有 offline 同步完成合同。</li>
+</ul>
+<p><b>容量理由：</b>简化示例中，100 个需要推理的业务请求若有 10% 再调用一次，会变成 110 次模型调用；这不是实测数据，也未计入输入/输出 token 差异。当前选择用失败统计定位问题，避免重试加重排队和尾延迟；扩容应由 QPS、并发、资源利用率和延迟证据驱动，不是看到任意失败就扩容。</p>
+<h3>历史提交不能移到 ParseResponse</h3>
+<p>参考文档描述的完成路径包含历史准入评估、Turn 存储、可选流式发布/等待，以及合格 Query 存储尝试；Query 写回还要求 frame 所有权转移和 AfterProcess 成功。失败的模型调用不自行写历史，不等于“一个逻辑请求一定写一条历史”。写入与容量淘汰也不能假定原子：HSet 成功后 HDel 失败可能留下部分变化。存储错误不能一律解释为“没有写过”，也不能触发新一轮模型调用。</p>
+
+<h2 id="s4"><span class="no">4</span>配置与协议：复用，不平行重建</h2>
+<table>
+<tr><th>已有边界</th><th>文档基线</th><th>讨论约束</th></tr>
+<tr><td>入口 / 选择</td><td>LanguageUnderstanding.NluConfig → manager JSON；Backend.type 显式选择；缺省 mock。</td><td>Linux HTTP / Android offline 是配置目标，不是 OS 自动激活证据。</td></tr>
+<tr><td>Model</td><td>profile_catalog_path、profile。</td><td>不将后端、模型路径与推理能力混成新平行配置树。</td></tr>
+<tr><td>Profile</td><td>model、system_prompt、protocol_path、stream、temperature、top_p、top_k、max_tokens、allow_multi_intent_output。</td><td>九个键在参考合同中均必需；strict profile 不接受任意新增字段。</td></tr>
+<tr><td>Descriptor</td><td>protocol=nlu_10；精确前缀、TAB、赋值/帧分隔符、unknown/multi 标记。</td><td>格式变更是 codec 合同变化；不靠标点猜协议，不做 NFKC。</td></tr>
+<tr><td>HTTP / Offline</td><td>HTTP 的 endpoint、connect/total timeout、response 上限；offline 的宿主绑定与 response 上限。</td><td>response_format、grammar 等需要能力与接口确认，不能写成当前可用配置。</td></tr>
+</table>
+<h3>现有形状的 Profile 示例（非部署配置）</h3>
+<p>仅展示参考合同；数值不是推荐调优结果，路径和 model 不是当前部署事实。Catalog / descriptor 相对主配置 base 解析且须在其范围内，不自动相对 catalog 所在目录。</p>
+<pre><code>{
+  "profiles": {
+    "configured-model": {
+      "model": "configured-model",
+      "system_prompt": "与所选模型训练和服务约定匹配的提示词",
+      "protocol_path": "conf/models/nlu/protocols/nlu_10.json",
+      "stream": false,
+      "temperature": 0.01,
+      "top_p": 0.95,
+      "top_k": 20,
+      "max_tokens": 128,
+      "allow_multi_intent_output": true
+    }
+  }
+}</code></pre>
+<h3>wire 示例（不是 HTTP envelope，也不是 JSON 语义体）</h3>
+<pre><code>music&lt;TAB&gt;play&lt;TAB&gt;singer=周杰伦,song=稻香
+fm&lt;TAB&gt;stop
+unknown
+multi:music&lt;TAB&gt;pause;fm&lt;TAB&gt;stop</code></pre>
+<p><code>&lt;TAB&gt;</code> 仅为展示占位符；线上字节为 <code>09</code>。本例 ASCII <code>;</code>、<code>:</code>、<code>=</code> 分别为 U+003B/3B、U+003A/3A、U+003D/3D；全角 <code>；</code>（U+FF1B/EF BC 9B）、<code>：</code>（U+FF1A/EF BC 9A）不是等价结构字节。实际准入以所选 descriptor 为准。</p>
+<p>当前继续使用 nlu_10，不新增 JSON codec，也不将模型正文改为 JSON。HTTP 的 JSON envelope 不代表模型正文是 JSON；JSON Schema 不能直接描述现有非 JSON wire。生成约束仅作为 backend 能力待核对项，必须匹配当前 descriptor，不能承诺只加 response_format 即可。</p>
+
+<h2 id="s5"><span class="no">5</span>解析与观测边界</h2>
+<ol>
+<li><b>backend 结果：</b>HTTP 检查状态/envelope 并提取正文；offline 复制有界的完整或有序增量文本。provider 返回前完成全部 callback，不接收晚到回调。</li>
+<li><b>既有包装处理：</b>沿用 codec 已有规则；遇到截断或不完整内容不能捏造完整语义。</li>
+<li><b>wire 验证：</b>按 single / unknown / multi 与精确风格解析所有帧；拒绝混合风格、空帧和不完整结果；不能静默跳过坏帧。</li>
+<li><b>语义交接：</b>进入既有 SemanticFrame / SlotNormalizer / DM；不新增标签白名单或独立动作模型。槽值 <code>a|b</code> 保持字符串，不自行拆成多动作。</li>
+<li><b>完成与历史：</b>由既有 owner 决定准入、提交和清理；模型输出不等于最终业务真相。</li>
+</ol>
+<p><b>严格 parser 始终是安全边界。</b>即使约束采样可用，也可能出现截断、provider 不支持字段或契约不一致；合法结构不代表正确动作。不能把解析门降格为形式校验。</p>
+<table>
+<tr><th>观测目的</th><th>复用机制</th><th>边界</th></tr>
+<tr><td>阶段耗时</td><td>现有 request-owned Timeline。</td><td>先核对 API、时钟、区间语义和覆盖；不增加平行 stopwatch 或 session 复用累积器。</td></tr>
+<tr><td>诊断</td><td>已有 LOG / VLOG；详细内容使用 VLOG(4)。</td><td>debug 的原始业务 JSON 复用现有边界；release 不打印 payload、history 或 prompt。认证 header 与 body 分开。</td></tr>
+<tr><td>聚合质量与性能</td><td>已有 PrometheusWrapper，能力/初始化核对后补缺口。</td><td>固定低基数 outcome/reason；不使用 request/session ID 作标签。明确 NLU 终态计数 owner，backend、manager、DM 不重复累计同一失败；兜底响应成功不覆盖原始技术失败。</td></tr>
+<tr><td>重要生产事件</td><td>仅在现有 schema 和 owner 允许时使用 LogReporter。</td><td>不为阶段日志新增 Kafka 事件，不把 Linux 依赖带入 Android。</td></tr>
+</table>
+<p>评估至少区分：格式失败、合法拒识、错误动作、合法多意图接受、history 正确性、p95/p99 延迟。没有重试路径，不增加重试率或修复成功率指标；不预设格式错误下降若干数量级。没有运行样本时，这些是未来评测维度，不是本次结果。</p>
+
+<h3>以终态分类计数定位问题，不以重试修复失败</h3>
+<p>复用已有 PrometheusWrapper 和结果字段，由能看到最终 NLU 结果的单一 owner 记录终态；具体调用点需源码核对。以下是分类建议，不是已新增的指标名称或 API。统计范围是本次准入处理的真实 LLM 路径；hotfix/mock、构建失败等路径须与真实模型调用量区分。</p>
+<table>
+<tr><th>固定结果类别（示例）</th><th>含义</th><th>技术失败计数</th></tr>
+<tr><td>valid_result</td><td>返回完整且通过 NLU 校验的语义；不据此推断最终动作成功。</td><td>否</td></tr>
+<tr><td>unknown</td><td>模型按协议返回业务拒识，进入 DM 兜底。</td><td>否；单列拒识</td></tr>
+<tr><td>format_error</td><td>生成正文畸形或截断，不能接受为协议结果。</td><td>是</td></tr>
+<tr><td>timeout</td><td>明确观察到连接或调用超时，不能仅按耗时猜测。</td><td>是</td></tr>
+<tr><td>transport_error / service_error</td><td>连接/传输故障或 HTTP/服务端失败；保持既有错误码含义。</td><td>是</td></tr>
+<tr><td>cancelled</td><td>请求被取消并进入清理；不混成超时。</td><td>独立分类，不混入上述故障数</td></tr>
+</table>
+<ul>
+<li><b>不重复累计：</b>同一次准入处理的 NLU 终态只计一次；底层返回原因，最终 owner 计数。HTTP 失败若导致正文不可解析，应按已确定的服务错误计数，不再叠加一个格式错误。</li>
+<li><b>不掩盖失败：</b>DM 成功生成兜底话术不把 NLU 技术失败改计成成功。原始模型输出和错误证据保留在既有诊断边界，不伪造 unknown 正文。</li>
+<li><b>不增加平行框架：</b>优先使用现有终态计数的固定 outcome/reason；失败总数可由对应分类聚合，不机械新增重复计数器。request/session ID、原始文本、URL、任意错误字符串不得作为指标标签。</li>
+<li><b>分类驱动改善：</b>格式失败关注模型输出与 descriptor 匹配；超时结合排队、QPS、并发和资源利用率分析；传输/服务错误检查调用链。更多算力不直接修复格式错误，失败计数本身也不是修复措施。</li>
+</ul>
+
+<h2 id="s6"><span class="no">6</span>建议顺序与验收思路（未批准的后续工作）</h2>
+<table>
+<tr><th>顺序</th><th>目标</th><th>需要的证据 / 回退边界</th></tr>
+<tr><td>0 · 文档校准</td><td>纠正 wire、配置、超时、候选与生命周期叙述，保持图文一致。</td><td>本次仅做这一项；不宣称产品源码、构建或运行行为已验证。</td></tr>
+<tr><td>1 · 固定基线</td><td>核对权威源码修订、实际选定配置/provider/model/template 及现有覆盖。</td><td>分别记录源代码、配置选择、运行证据；不由模型名、BUILD 或资源存在推断激活。</td></tr>
+<tr><td>2 · 建立评测</td><td>正常、拒识、多意图、畸形/截断、超时及可用取消路径；检查跨 session 隔离。</td><td>记录质量与延迟基线；预算/目标先定义，不套用原稿 2s 或“接近零”假设。</td></tr>
+<tr><td>3 · 按缺口增量改善</td><td>在现有边界评估生成约束、诊断或 deadline；一次区分清楚一个行为变化。</td><td>保持业务/历史准入；共享改动验证 V2/Android。回退到已验证的代码+配置+模型组合，不只删一个字段。</td></tr>
+<tr><td>4 · 质量与容量诊断</td><td>按终态原因、QPS、排队与尾延迟定位问题；格式失败优先检查模型/协议，容量瓶颈依据负载数据处理。</td><td>确认无隐藏自动重试、失败只计一次，unknown 不算技术失败；本项不授权扩容、训练或部署。</td></tr>
+<tr><td>5 · 保留兼容边界</td><td>不引入新 JSON codec、重试管线或平台引擎替换；保持现有协议、业务与历史合同。</td><td>当前请求级 V2/V3 路由与状态隔离仍是参考文档 TODO，不能当作现成能力或回滚机制。</td></tr>
+</table>
+<p>本表是讨论顺序，不是实施计划或批准记录。后续若进入开发，再按实际范围确定方案、文件、资源与验收；本次不运行构建、服务、模型或远程操作。</p>
+
+<h2 id="s7"><span class="no">7</span>保留项、参考与待决问题</h2>
+<ul>
+<li>保留 <code>stream:false</code> 模型请求、有界收集与完整语义发布；它与客户端 SSE stream 是不同层次。</li>
+<li>保留 HTTP/offline 共用 codec、显式 factory 分支和既有 profile/descriptor；不引入运行时通用协议框架。</li>
+<li>保留 Context/Turn/Task/HRS/DM 职责；模型 messages 不能替代任务状态或会话历史。</li>
+<li>保留历史存储与模型投影的区别：保存多少、投影多少、TTL 和字节预算是独立策略；不为新 parser 重选/重存历史。</li>
+</ul>
+<h3>参考资料与证据边界</h3>
+<ul>
+<li><a href="../dialogue_v3/Dialogue_V3_NLU配置化方案_V1.5.md">V3 配置说明</a>：§§1–5 为 manager/profile/backend 基线；§§6.1–6.5 为历史 owner、投影与提交。</li>
+<li><a href="../dialogue_v3/NLU接口使用说明.md">NLU 接口</a>：§2 请求字段；§§4–5 wire 与整组解析；§6 callback 与时限。</li>
+<li><a href="../dialogue_v3/NLU模型集成说明_v10.md">模型集成说明</a>：区分训练资料、生产 wire 与历史准入；训练统计不是本次重新验证结果。</li>
+<li><a href="../dialogue_v3/One-in-Flight-per-Session-Design.md">每 session 一个正常在途轮次</a>：完成、并发、request ID 与历史 owner 的契约，不是 guard 实现证明。</li>
+<li><a href="../dialogue_v3/README.md">V3 参考入口</a>：固定修订与当前能力/TODO 边界。以上均为本地文档引用，不替代当前权威源码/部署核查。</li>
+</ul>
+<h3>仍需讨论，但不阻塞本次文档纠正</h3>
+<ol>
+<li>保留 nlu_10、不新增 JSON codec、不自动重试已明确；下一步需核对现有调用链和各层配置是否满足这一路径，而不是重新选择协议。</li>
+<li>质量目标、错误动作容忍度和端到端延迟目标是什么？这些是产品取舍；provider 支持什么应由源码/配置调查解决，不交给用户猜。</li>
+<li>基于失败分类、QPS、排队和资源利用率，当前瓶颈是模型/协议质量还是服务容量？先收集证据，不把扩容、训练或部署视为自动后续动作。</li>
+</ol>
+<footer>本页内嵌图与同目录三张 SVG 内容保持一致，保留独立分发能力。修订仅涉及文档；未验证浏览器渲染、产品构建、运行性能或部署激活。</footer>
+</div>
+</body>
+</html>
