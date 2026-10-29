@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monthly Open-Issue Contribution Triage — llama.cpp, vLLM, TensorRT-LLM</title>
+<style>
+:root{--bg:#0d1117;--panel:#151b23;--panel2:#1b2430;--text:#e6edf3;--muted:#9daaba;--line:#2c3745;--blue:#6ea8fe;--cyan:#56d4dd;--green:#56d364;--amber:#e3b341;--red:#ff7b72;--purple:#d2a8ff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:1240px;margin:auto;padding:34px 28px 70px}header{padding:34px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(135deg,#17202c,#111820 60%,#1c202a);box-shadow:0 18px 45px #0004}h1{font-size:29px;line-height:1.25;margin:0 0 14px}h2{font-size:23px;margin:42px 0 16px;padding-top:8px}h3{font-size:18px;margin:24px 0 10px}.case h3{margin:0 0 10px}p{margin:8px 0}.sub{color:var(--muted);max-width:980px}.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.pill,.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted);background:#ffffff06}.tag.blue{color:var(--blue);border-color:#6ea8fe55}.tag.green{color:var(--green);border-color:#56d36455}.tag.amber{color:var(--amber);border-color:#e3b34155}.tag.red{color:var(--red);border-color:#ff7b7255}.tag.purple{color:var(--purple);border-color:#d2a8ff55}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}.card,.case{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}.card strong{color:var(--cyan)}.note{border-left:3px solid var(--amber);background:#e3b3410c;padding:12px 16px;margin:14px 0;border-radius:0 10px 10px 0}.good{border-left-color:var(--green);background:#56d3640b}.info{border-left-color:var(--blue);background:#6ea8fe0b}.danger{border-left-color:var(--red);background:#ff7b720b}.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:14px;margin:14px 0}table{width:100%;border-collapse:collapse;background:var(--panel)}th,td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{background:var(--panel2);color:#c9d5e3;font-size:13px;white-space:nowrap}tr:last-child td{border-bottom:0}td{min-width:120px}td:first-child{min-width:190px}.num{color:var(--green);font-weight:650;white-space:nowrap}.muted{color:var(--muted)}code{font-family:"Cascadia Code",Consolas,monospace;font-size:13px;color:#a5d6ff;background:#0a1018;border:1px solid #263243;border-radius:5px;padding:1px 5px;white-space:nowrap}.cases{display:grid;gap:15px}.case{padding:20px}.casehead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.case h3 a{color:var(--text)}.flow{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}.flow>div{background:#0d141d;border:1px solid #263242;border-radius:10px;padding:12px 14px}.flow b{display:block;color:var(--amber);margin-bottom:4px}.flow .fix b{color:var(--green)}.verify{margin-top:10px;color:var(--muted);font-size:13px}.rank{font-size:12px;color:var(--purple);white-space:nowrap}.footer{margin-top:42px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}.small{font-size:13px}.kpi{font-size:23px;font-weight:700;color:var(--text);display:block;margin-bottom:6px}ul{margin:8px 0;padding-left:21px}li{margin:4px 0}@media(max-width:850px){.grid{grid-template-columns:1fr}.flow{grid-template-columns:1fr}.wrap{padding:18px 14px}header{padding:22px}h1{font-size:25px}.casehead{display:block}}
+</style>
+</head>
+<body><main class="wrap">
+<header>
+<div class="pill">Open-source contribution triage · verified 2026-10-29</div>
+<h1>Monthly Open-Issue Contribution Triage</h1>
+<p class="sub">llama.cpp · vLLM · TensorRT-LLM — issues opened October 1–28, 2026 and still open, with existing PR work excluded before recommendation.</p>
+<div class="meta"><span class="tag blue">12 actionable candidates</span><span class="tag green">5 first-PR friendly</span><span class="tag amber">4 design/hardware heavy</span><span class="tag purple">PR state refreshed 2026-10-29</span></div>
+</header>
+<section>
+<h2>1. Recommended starting points</h2>
+<div class="grid">
+<div class="card"><span class="kpi">Best first PR</span><strong>llama.cpp #30879</strong> — relabel 256 Sarvam byte-fallback tokens as BYTE. Tiny semantic fix with a focused vocabulary round-trip test.</div>
+<div class="card"><span class="kpi">Best packaging fix</span><strong>TensorRT-LLM #20944</strong> — align bundled CUDA 13.4 headers with the declared NVRTC dependency, or fail early with a useful version error.</div>
+<div class="card"><span class="kpi">Best performance PR</span><strong>llama.cpp #30422</strong> — avoid copying unused vocabulary logits during pooled reranking; the reporter measured large latency and DtoH reductions.</div>
+</div>
+<div class="note info"><b>Scope and counts:</b> the live searches returned 285 llama.cpp, 569 vLLM, and 97 TensorRT-LLM open issues created in the window at the times checked. A later llama.cpp scan returned 286 as new issues arrived. Counts are snapshots, not permanent totals.</div>
+<div class="note good"><b>PR exclusion rule:</b> candidates were screened using PR-link filters, all-state PR title/body searches, issue comments/timelines, and topical PR searches. “No PR found” below means no direct PR was found during the 2026-10-29 refresh. Related PRs that explicitly leave the issue unfixed are documented rather than treated as coverage.</div>
+<div class="note danger"><b>Before coding:</b> post a short comment on the issue, especially where the reporter already has a fork or local patch. These checks reduce duplicate work but cannot prevent a PR from appearing after the snapshot.</div>
+</section>
+<section>
+<h2>2. Priority summary</h2>
+<div class="tablebox"><table>
+<thead><tr><th>Priority</th><th>Issue</th><th>Why it is worth doing</th><th>Effort</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><a href="https://github.com/ggml-org/llama.cpp/issues/30879">llama.cpp #30879</a></td><td>Clear tokenizer metadata error, minimal blast radius, direct unit test.</td><td><span class="tag green">S</span></td></tr>
+<tr><td>2</td><td><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20944">TensorRT-LLM #20944</a></td><td>Wheel dependency contract is demonstrably inconsistent; small packaging/runtime fix.</td><td><span class="tag green">S</span></td></tr>
+<tr><td>3</td><td><a href="https://github.com/ggml-org/llama.cpp/issues/30422">llama.cpp #30422</a></td><td>Strong measured performance evidence and a bounded code path.</td><td><span class="tag green">S/M</span></td></tr>
+<tr><td>4</td><td><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20988">TensorRT-LLM #20988</a></td><td>CPU-only reproduction of multi-GiB decoded-video allocation; important serving hardening.</td><td><span class="tag amber">S/M</span></td></tr>
+<tr><td>5</td><td><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20969">TensorRT-LLM #20969</a></td><td>Dense classes miss an existing Hopper Marlin default already used by MoE classes.</td><td><span class="tag green">S/M</span></td></tr>
+<tr><td>6</td><td><a href="https://github.com/ggml-org/llama.cpp/issues/30773">llama.cpp #30773</a></td><td>Responses API can mark truncated tool arguments complete and omit required SSE completion events.</td><td><span class="tag amber">M</span></td></tr>
+<tr><td>7</td><td><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20211">TensorRT-LLM #20211</a></td><td>Startup probe can ignore explicit host-cache budget and trigger cgroup OOM.</td><td><span class="tag amber">M</span></td></tr>
+<tr><td>8</td><td><a href="https://github.com/vllm-project/vllm/issues/62558">vLLM #62558</a></td><td>Detailed hybrid TurboQuant block/page-size analysis with local validation; best split into focused changes.</td><td><span class="tag amber">M/L</span></td></tr>
+<tr><td>9</td><td><a href="https://github.com/ggml-org/llama.cpp/issues/30954">llama.cpp #30954</a></td><td>Reproducible RPC/Vulkan lifetime failure with multi-worker evidence.</td><td><span class="tag amber">M</span></td></tr>
+<tr><td>10</td><td><a href="https://github.com/ggml-org/llama.cpp/issues/31229">llama.cpp #31229</a></td><td>Scheduler heuristic creates isolated GPU splits and unnecessary host/device transfers.</td><td><span class="tag amber">M</span></td></tr>
+<tr><td>11</td><td><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20647">TensorRT-LLM #20647</a></td><td>Single-device builds fail on the default launch path; design choice needs maintainer agreement.</td><td><span class="tag amber">M</span></td></tr>
+<tr><td>12</td><td><a href="https://github.com/vllm-project/vllm/issues/62626">vLLM #62626</a></td><td>High-impact silent wrong logits from a capture-time FA3 scheduler decision; advanced CUDA work.</td><td><span class="tag red">L</span></td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>3. llama.cpp candidates</h2>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/issues/30879">#30879 · Sarvam byte-fallback tokens are labeled NORMAL instead of BYTE</a></h3><span class="rank">Best first PR · S</span></div>
+<p><span class="tag green">Tokenizer metadata</span> Tokens <code>&lt;0x00&gt;</code> through <code>&lt;0xFF&gt;</code> are written as NORMAL. Unicode containing ₹ and a narrow no-break space can decode into literal byte-token text; relabelling fixed decoding without changing tokenization.</p>
+<div class="flow"><div><b>Implementation</b>In <code>conversion/bailingmoe.py</code>, mark the model's 256 byte-fallback tokens as BYTE, preferably by deriving them from tokenizer metadata/patterns rather than depending only on fixed IDs.</div><div class="fix"><b>Validation</b>Build a vocab-only GGUF; assert all 256 token types; round-trip Unicode byte fallback and ASCII; confirm ordinary tokenization and model scores are unchanged.</div></div>
+<p class="verify">PR audit: no PR reference found in the all-state title/body search on 2026-10-29. A commenter offered to prepare a fix, so coordinate in the issue first.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/issues/30422">#30422 · Pooled reranking copies unused n_vocab logits to the host</a></h3><span class="rank">Performance · S/M</span></div>
+<p><span class="tag green">Large measured win</span> Qwen3-Reranker copies roughly 600 KB of logits per token. The reporter measured 2,119 MB DtoH traffic for one request and local rerank improvements from 3.10 s to 0.53 s and 35.1 s to 5.3 s, with identical scores.</p>
+<div class="flow"><div><b>Implementation</b>In <code>src/llama-context.cpp</code>, avoid raw-logit host extraction for pooled-embedding batches while preserving completion logits on mixed-use servers. Keep avoiding LM-head graph construction as a separate optimization if it expands scope.</div><div class="fix"><b>Validation</b>Compare rerank scores, measure DtoH bytes with nsys, alternate rerank and completion requests, and test pooled/non-pooled paths on at least CPU and CUDA.</div></div>
+<p class="verify">PR audit: no direct PR found on 2026-10-29. Maintainer feedback is still absent, so keep the first patch narrow and include mixed-workload tests.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/issues/30773">#30773 · Responses API marks truncated tool calls complete</a></h3><span class="rank">API correctness · M</span></div>
+<p><span class="tag amber">Protocol semantics</span> With <code>max_output_tokens=40</code>, streaming can return incomplete JSON arguments yet emit <code>response.completed</code> and item status completed. Successful calls also omit <code>function_call_arguments.done</code>. Chat Completions correctly reports <code>finish_reason: length</code>.</p>
+<div class="flow"><div><b>Implementation</b>In <code>tools/server/server-task.cpp</code>, propagate the existing stop reason through Responses serialization; emit <code>response.incomplete</code> with <code>incomplete_details.reason=max_output_tokens</code>, do not complete truncated items, and emit argument-done events for finished calls.</div><div class="fix"><b>Validation</b>Add SSE event-sequence tests for complete/truncated text and tool calls, malformed-JSON truncation, non-streaming Responses, and stop-reason parity with Chat Completions.</div></div>
+<p class="verify">PR audit: no PR reference found on 2026-10-29. A second user independently reproduced both defects, strengthening the report.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/issues/30954">#30954 · RPC + Vulkan tensor splitting frees temporary tensor metadata too early</a></h3><span class="rank">Backend lifetime · M</span></div>
+<p><span class="tag amber">Multi-worker crash</span> Two-worker RPC/Vulkan tensor splitting segfaults while layer splitting and individual workers succeed. Reporter follow-up implicates temporary tensor contexts in <code>comm_allreduce()</code> and uncached <code>graph_compute()</code>.</p>
+<div class="flow"><div><b>Implementation</b>Inspect <code>ggml/src/ggml-rpc/ggml-rpc.cpp</code>. Either synchronize temporary graphs before context destruction or retain tensor metadata until backend completion. Compare the synchronization cost with an ownership-based fix.</div><div class="fix"><b>Validation</b>Run two/three/five workers, reversed worker order, <code>GGML_RPC_NO_COMM=1</code>, repeated tensor-split generation, layer-split control, ASan, and output parity.</div></div>
+<p class="verify">PR audit: no PR reference found on 2026-10-29. Root cause is strongly supported but the preferred ownership design remains unconfirmed.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/ggml-org/llama.cpp/issues/31229">#31229 · Op-offload batch heuristic counts heads as tokens</a></h3><span class="rank">Scheduler design · M</span></div>
+<p><span class="tag amber">Unnecessary GPU islands</span> Qwen3 per-head normalization MUL/ROPE nodes are offloaded separately from surrounding CPU layers, causing CPU→GPU→CPU transfers. Vulkan showed 73 splits versus one with a higher threshold; two tokens defeat that workaround.</p>
+<div class="flow"><div><b>Implementation</b>Review <code>get_op_batch_size</code> and device pinning around <code>src/llama-context.cpp</code>. Use token-based semantics for per-head elementwise operations or pin the normalization chain with its layer. Review the earlier heuristic revert in #19976 before choosing a global change.</div><div class="fix"><b>Validation</b>Inspect split graphs at one/two tokens on CUDA and Vulkan, cover Qwen3/Qwen3.5, run backend-op correctness tests and alternating performance runs with full-offload controls.</div></div>
+<p class="verify">PR audit: no PR reference found on 2026-10-29. Reporter explicitly requests design guidance; discuss the invariant before changing the global heuristic.</p></article>
+</div>
+</section>
+<section>
+<h2>4. vLLM candidates</h2>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/issues/62558">#62558 · TurboQuant hybrid GDN block splitting and drafter page inflation</a></h3><span class="rank">Quantized KV · M/L</span></div>
+<p><span class="tag amber">Two related defects</span> A 1,712-token manager block cannot be split into supported kernel blocks. After a local workaround, FP8 drafter pages force every page to the largest size, shrinking the KV pool from 235,605 to 97,517 tokens.</p>
+<div class="flow"><div><b>Implementation</b>Split the work: (1) define correct non-power-of-two block-size semantics for TurboQuant/Triton paths; (2) choose drafter page divisors that fit unified page-size constraints instead of inflating all pages. The reporter already has env-gated local changes and measurements.</div><div class="fix"><b>Validation</b>Add generic block-size/page-unification unit tests plus ROCm integration. Verify startup, pool capacity, tool calls, output quality, and TRITON_ATTN block-size assumptions; do not mix in the separate gfx1201 FlyDSL tuning.</div></div>
+<p class="verify">PR audit: no direct TurboQuant PR found. PR #40914 is a different spec-verify path. The reporter offered to turn the changes into a PR, so the best contribution may be collaboration, test coverage, or splitting one focused sub-fix.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/vllm-project/vllm/issues/62626">#62626 · FULL CUDA graph + FA3 split-KV freezes the wrong combine scheduler</a></h3><span class="rank">Advanced CUDA · L</span></div>
+<p><span class="tag red">Silent wrong logits</span> Capture uses a dummy mixed batch, and FA3's combine kernel chooses a host-side tile scheduler/grid from that shape. Replay can then use a different real batch on the frozen grid, leaving output rows uncombined.</p>
+<div class="flow"><div><b>Implementation</b>Preferred direction: use a capture-safe LINEARIZE_M_AND_BATCH scheduler whose grid depends only on padded values stable across capture/replay. Alternative: capture with an upper-bound <code>max_seqlen_q</code>, but that can change main-kernel performance and needs separate evaluation.</div><div class="fix"><b>Validation</b>Run the supplied q=2 prefix-cache repro, mixed-batch sweeps, split-cap controls, H100/H200, FULL versus FULL_AND_PIECEWISE, and FlashInfer controls. Assert logits against a non-captured path, not just absence of crashes.</div></div>
+<p class="verify">PR audit: open PRs #64000 and #64205 mention this issue but explicitly do not fix its FULL-graph combine behavior; #64205 excludes full-CG-eligible batches. The issue remains a valid advanced contribution.</p></article>
+</div>
+</section>
+<section>
+<h2>5. TensorRT-LLM candidates</h2>
+<div class="cases">
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20944">#20944 · CUDA 13.4 JIT headers conflict with unbounded NVRTC 13.0</a></h3><span class="rank">Packaging · S</span></div>
+<p><span class="tag green">Clean dependency contract</span> The v1.4.0rc1 wheel accepts NVRTC 13.0 but bundles CUDA 13.4 headers that reference unknown identifiers. Loading NVRTC 13.4.92 makes the same benchmark compile and finish.</p>
+<div class="flow"><div><b>Implementation</b>Declare a matching minimum <code>nvidia-cuda-nvrtc</code> version, or bundle headers compatible with the oldest supported NVRTC. Add an early loaded-NVRTC/header compatibility error so future mismatches are actionable.</div><div class="fix"><b>Validation</b>Test a clean pip + torch cu130 environment, inspect wheel METADATA, and run the B300 FMHA JIT warmup. Also test the supported oldest NVRTC and the official container path.</div></div>
+<p class="verify">PR audit: PR #20945 fixes only nvcc path selection (#20515) and explicitly leaves this NVRTC/header issue out of scope.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20988">#20988 · Per-request video kwargs allow multi-GiB decoded allocations</a></h3><span class="rank">Serving hardening · S/M</span></div>
+<p><span class="tag amber">CPU-only repro</span> A 1.2 MB video plus client-supplied <code>num_frames=500</code> produced 5.15 GiB of float32 data and 12.2 GiB peak RSS; 1,000 frames attempted an 11 GiB allocation. Encoded-size limits do not bound decoded size.</p>
+<div class="flow"><div><b>Implementation</b>Apply server-authoritative limits before stacking/conversion: cap request <code>num_frames</code> by server policy and/or reject excessive <code>frames × height × width × channels × dtype</code>. Preserve explicit server configuration while preventing clients from raising the limit.</div><div class="fix"><b>Validation</b>Use the supplied tiny-video repro, boundary frame counts, multiple video parts, fps×duration paths, and normal requests. Test both rejection and accepted-control behavior without requiring a GPU.</div></div>
+<p class="verify">PR audit: no PR reference found on 2026-10-29. The exact policy needs maintainer agreement, but the fix can start with decoded-byte enforcement.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20969">#20969 · Dense Qwen3.8 NVFP4 misses the Hopper Marlin default</a></h3><span class="rank">Model defaults · S/M</span></div>
+<p><span class="tag green">Existing pattern to reuse</span> Dense Qwen3.8 NVFP4 fails during warmup on SM90 because the default backend list lacks Marlin. Explicitly allowing Marlin starts and produces sensible GSM8K results; Qwen3.5 MoE classes already select Marlin on SM89–99.</p>
+<div class="flow"><div><b>Implementation</b>Give dense <code>Qwen3_5ForCausalLM</code> and the VL defaults the same NVFP4/MIXED_PRECISION linear backend default as the MoE path, without importing the MoE backend choice.</div><div class="fix"><b>Validation</b>Cover dense and VL class resolution, NVFP4 and MIXED_PRECISION configs, SM89–99 default selection, and an H200 smoke/accuracy run. Confirm unrelated architectures keep their defaults.</div></div>
+<p class="verify">PR audit: no direct PR found. Open PR #12591 only improves the early error message and does not change the default, so it is not a fix for this issue.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20211">#20211 · KV estimation probe ignores explicit host-cache budget</a></h3><span class="rank">Memory sizing · M</span></div>
+<p><span class="tag amber">Startup OOM</span> Estimation drops the explicit tier budget, then auto-sizes from device quota and node-wide free memory. Under a 16 GiB cgroup, a 1 GiB configured tier became a 17.37 GiB probe and was OOM-killed 6/6 times.</p>
+<div class="flow"><div><b>Implementation</b>For the first focused PR, bound auto sizing by <code>min(existing_auto_quota, configured_share)</code> while preserving target/draft shares and the fleet minimum. Treat cgroup-aware automatic sizing as a separate design decision.</div><div class="fix"><b>Validation</b>Test explicit cap, zero target/draft shares, missing cache costs, no-cap behavior, and multi-rank sizing. Add a cgroup integration test if available; do not claim cgroup correctness from CPU unit tests alone.</div></div>
+<p class="verify">PR audit: no upstream PR found. A commenter has a prepared fork commit with 94 CPU regressions passing, so coordinate before implementing. Open #19650 changes commit timing, not the explicit-cap arithmetic.</p></article>
+<article class="case"><div class="casehead"><h3><a href="https://github.com/NVIDIA/TensorRT-LLM/issues/20647">#20647 · ENABLE_MULTI_DEVICE=OFF reaches undefined MPIPoolExecutor</a></h3><span class="rank">Build/launch design · M</span></div>
+<p><span class="tag amber">Design-first</span> A single-GPU build fails on its default startup path because <code>MPIPoolExecutor</code> is imported only for multi-device builds but still referenced by <code>MpiPoolSession</code>.</p>
+<div class="flow"><div><b>Implementation</b>Discuss two options: automatically select the existing in-process TP1 worker when MPI is disabled, or fail early with a clear configuration error. A fallback must reject multi-rank requests and preserve supplied sessions and explicit Ray/RPC choices.</div><div class="fix"><b>Validation</b>Build with <code>ENABLE_MULTI_DEVICE=OFF</code>, then test startup, generation, streaming, shutdown, postprocessing handoff, and invalid multi-rank requests. CPU-only routing tests are not enough for process-isolation changes.</div></div>
+<p class="verify">PR audit: no direct upstream PR found. PRs #20580 and #13737 do not change this launch path. A fork proposal exists; settle process-isolation semantics with maintainers before submitting.</p></article>
+</div>
+</section>
+<section>
+<h2>6. Examples intentionally excluded because PRs exist</h2>
+<div class="tablebox"><table>
+<thead><tr><th>Project</th><th>Issue</th><th>Existing PR work found</th></tr></thead>
+<tbody>
+<tr><td>llama.cpp</td><td>#31155, #31163, #30816, #31158</td><td>PR #31165, draft #31266, #30864, and #31235 respectively.</td></tr>
+<tr><td>vLLM</td><td>#63751</td><td>Root-cause PR #61219 and serving guard #63775; absent from the naive no-linked-PR list but found in comments.</td></tr>
+<tr><td>vLLM</td><td>#62051</td><td>PRs #62259, #62517, and #62290 cover DSML truncation and opener handling.</td></tr>
+<tr><td>vLLM</td><td>#63170</td><td>PR #64127 addresses PP index handoff.</td></tr>
+<tr><td>vLLM</td><td>#63465, #62277, #61487</td><td>PR #63464; allocator PRs #59893/#58430/#56698; HiSparse/DBO PRs and active work.</td></tr>
+<tr><td>vLLM</td><td>#64327</td><td>FlashInfer PR flashinfer-ai/flashinfer#7782 fixes the MNNVL barrier bug.</td></tr>
+<tr><td>TensorRT-LLM</td><td>#20236</td><td>PR #20300 hoists <code>output_token_ids</code> out of the per-beam loop.</td></tr>
+<tr><td>TensorRT-LLM</td><td>#20986</td><td>PR #20987 caps decoded audio samples.</td></tr>
+</tbody></table></div>
+</section>
+<section>
+<h2>7. Suggested execution order</h2>
+<div class="note good"><b>Week 1 — low-risk, high-learning:</b> llama.cpp #30879, TensorRT-LLM #20944, then llama.cpp #30422. Each has a narrow behavior change and a clear correctness test.</div>
+<div class="note info"><b>Next — production hardening:</b> TensorRT-LLM #20988 and #20969, llama.cpp #30773, and TensorRT-LLM #20211. Align policy/default behavior with maintainers before finalizing the patch.</div>
+<div class="note"><b>Advanced tracks:</b> vLLM #62558 and #62626, llama.cpp #30954/#31229, and TensorRT-LLM #20647. These need specialized hardware, cross-component invariants, or an explicit design decision; avoid using them as a first upstream PR.</div>
+<p class="small muted">Effort labels: S = small/localized; M = moderate cross-component work or policy choice; L = advanced kernel/distributed debugging and specialized validation. They are complexity estimates, not time commitments.</p>
+</section>
+<div class="footer">Verification snapshot: 2026-10-29, issues created 2026-10-01 through 2026-10-28. All 12 recommended issues were still open when checked. Existing PR work can change at any time; re-run the issue/PR check immediately before starting implementation.</div>
+</main></body></html>
