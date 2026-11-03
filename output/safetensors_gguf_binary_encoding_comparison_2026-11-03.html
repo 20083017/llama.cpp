@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>safetensors 与 GGUF 二进制编码对比解析</title>
+<style>
+:root {
+  --bg: #16181d; --surface: #1e2128; --surface2: #262a33;
+  --border: #333843; --text: #e6e8ec; --muted: #9aa0ad;
+  --accent: #5dc9a5; --accent2: #a7a4f0; --amber: #ef9f27;
+  --hf: #b6aee0; --hf-bg: #2c2340; --gguf: #7fd6b5; --gguf-bg: #0c3a30;
+  --mono: "Consolas","Cascadia Code","JetBrains Mono",monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+  line-height: 1.75; font-size: 15px;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+h1 { font-size: 28px; font-weight: 600; margin: 0 0 8px; }
+h2 { font-size: 21px; font-weight: 600; margin: 44px 0 12px; padding-top: 20px; border-top: 1px solid var(--border); }
+h3 { font-size: 17px; font-weight: 600; margin: 28px 0 8px; }
+h4 { font-size: 15px; font-weight: 600; margin: 20px 0 6px; }
+p { margin: 10px 0; }
+.sub { color: var(--muted); font-size: 14px; }
+code {
+  font-family: var(--mono); font-size: 13px; background: var(--surface2);
+  padding: 2px 6px; border-radius: 4px; color: #d9e2ec;
+}
+pre {
+  background: #0f1115; border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; font-family: var(--mono);
+  font-size: 12.5px; line-height: 1.55; color: #c8d3de;
+}
+table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--surface2); font-weight: 600; }
+tr:nth-child(even) td { background: var(--surface); }
+.callout {
+  border-left: 3px solid var(--accent); background: var(--surface);
+  padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0;
+}
+.note {
+  border-left: 3px solid var(--amber); background: #2a2418;
+  padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0;
+}
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+.tag.hf { background: var(--hf-bg); color: var(--hf); }
+.tag.gguf { background: var(--gguf-bg); color: var(--gguf); }
+.toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin: 24px 0; }
+.toc ol { margin: 0; padding-left: 20px; }
+.toc li { margin: 4px 0; }
+.toc a { color: var(--accent); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.fig { background: #0f1115; border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin: 16px 0; overflow-x: auto; }
+.fig-cap { color: var(--muted); font-size: 13px; text-align: center; margin-top: 8px; }
+.hl-hex { color: #7fd6b5; }
+.hl-magic { color: #ef9f27; font-weight: 600; }
+.hl-meta { color: #a7a4f0; }
+.hl-data { color: #888; }
+.term { color: var(--accent2); font-weight: 500; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>safetensors 与 GGUF 二进制编码对比解析</h1>
+<p class="sub">字节级编码与数据结构设计详解 · 含真实二进制构造与解析示例（Python 标准库零依赖）</p>
+
+<div class="callout">
+<strong>一句话结论：</strong>两者都是「元数据头 + 连续张量字节流」的二进制格式，但 <span class="tag hf">safetensors</span> 面向<strong>训练/框架耦合</strong>（JSON 头按张量名索引、dtype 保真、多文件分片），而 <span class="tag gguf">GGUF</span> 面向<strong>消费级单文件推理</strong>（全二进制 KV 头、内嵌架构与 tokenizer、原生量化、mmap 延迟加载）。
+</div>
+
+<div class="toc">
+<strong>目录</strong>
+<ol>
+<li><a href="#sec1">术语表（先读这个）</a></li>
+<li><a href="#sec2">核心设计哲学对比</a></li>
+<li><a href="#sec3">文件布局：编码结构详解</a></li>
+<li><a href="#sec4">真实二进制解析示例</a></li>
+<li><a href="#sec5">为什么会有两个「平行宇宙」</a></li>
+<li><a href="#sec6">量化：GGUF 的体积魔法</a></li>
+<li><a href="#sec7">转换桥梁：从 HF 到 GGUF</a></li>
+</ol>
+</div>
+
+<h2 id="sec1">1. 术语表（先读这个）</h2>
+<p class="sub">为照顾初次接触者，先统一术语。按出现顺序排列。</p>
+<table>
+<tr><th>术语</th><th>全称 / 缩写</th><th>含义</th></tr>
+<tr><td>HF</td><td>Hugging Face</td><td>开源模型社区与库（transformers 生态）</td></tr>
+<tr><td>safetensors</td><td>—</td><td>HF 推出的安全张量存储格式，替代不安全的 <code>.bin</code>（pickle）</td></tr>
+<tr><td>GGUF</td><td>GGML Universal Format</td><td>llama.cpp 作者 ggerganov 设计的单文件推理格式</td></tr>
+<tr><td>张量 / Tensor</td><td>—</td><td>多维数组，模型权重、激活值都是张量</td></tr>
+<tr><td>dtype</td><td>data type</td><td>张量元素的数据类型，如 F32（32 位浮点）、F16、Q4_K（4 位量化）</td></tr>
+<tr><td>KV / key-value</td><td>键值对</td><td>GGUF 元数据用「键 + 类型标记 + 值」编码的条目</td></tr>
+<tr><td>mmap</td><td>memory-mapped I/O</td><td>内存映射文件，把文件直接映射到虚拟内存，按需从磁盘换页，无需整体读入</td></tr>
+<tr><td>量化 / Quantization</td><td>—</td><td>用低比特（如 4 位）近似表示高精度权重，换取体积和速度</td></tr>
+<tr><td>offset</td><td>偏移量</td><td>张量数据在文件中的字节起始位置，用于随机访问</td></tr>
+<tr><td>BPE</td><td>Byte-Pair Encoding</td><td>字节对编码，LLM 主流分词算法</td></tr>
+<tr><td>tokenizer</td><td>分词器</td><td>把文本字符串转换为 token ID 序列的组件</td></tr>
+<tr><td>shard / 分片</td><td>—</td><td>把超大权重文件拆成多个小文件</td></tr>
+<tr><td>state_dict</td><td>—</td><td>PyTorch 模型权重的字典结构，键为参数名，值为张量</td></tr>
+<tr><td>量化块 / block</td><td>—</td><td>量化时把若干个权重值打包成一组，共享一个 scale</td></tr>
+</table>
+
+<h2 id="sec2">2. 核心设计哲学对比</h2>
+<table>
+<tr><th>维度</th><th>HF safetensors</th><th>GGUF</th></tr>
+<tr><td>设计目标</td><td>训练 + PyTorch/transformers 推理</td><td>消费级 CPU/GPU 单文件推理</td></tr>
+<tr><td>文件数量</td><td>多文件（shard + config.json + tokenizer）</td><td>单文件自包含</td></tr>
+<tr><td>架构信息</td><td>无，靠外部 <code>config.json</code></td><td>内嵌 <code>general.architecture</code> KV</td></tr>
+<tr><td>张量寻址</td><td>JSON header 按名 → offset</td><td>KV + Tensor Info 表 → offset</td></tr>
+<tr><td>dtype</td><td>原始 dtype 保真（F32/F16/BF16）</td><td>ggml 枚举 + 量化类型（Q4_K 等）</td></tr>
+<tr><td>内存策略</td><td>mmap（可选）、完整加载</td><td>mmap + 延迟换页（核心）</td></tr>
+<tr><td>量化</td><td>通常不量化</td><td>原生量化，直接存量化权重</td></tr>
+<tr><td>依赖</td><td>需 PyTorch 生态</td><td>零依赖，任意语言可解析</td></tr>
+<tr><td>元数据</td><td>JSON 文本 + <code>__metadata__</code></td><td>全二进制 KV（type tag），极灵活</td></tr>
+</table>
+
+<h2 id="sec3">3. 文件布局：编码结构详解</h2>
+
+<h3>3.1 safetensors 布局</h3>
+<div class="fig">
+<pre>[8 字节小端 u64: header 长度 N]
+[N 字节 UTF-8 JSON header]
+[连续张量字节流：tensor0, tensor1, ...]</pre>
+<div class="fig-cap">safetensors 文件结构（三段式）</div>
+</div>
+<p>header 是 JSON 文本，逐张量记录 dtype / shape / data_offsets。加载器解析 JSON 后按 offset 随机访问。这是一种「索引表 + 数据块」的解耦设计，便于按需加载。</p>
+
+<h3>3.2 GGUF 布局</h3>
+<div class="fig">
+<pre>[Magic 'GGUF' + version + tensor_count + kv_count]
+[KV 元数据块：key + value类型标记 + value字节 × N]
+[Tensor Info 表：name + n_dims + shape[] + ggml_dtype + offset × M]
+[Tensor 数据块：按 32 字节对齐的连续字节流]</pre>
+<div class="fig-cap">GGUF 文件结构（四段式）</div>
+</div>
+<p>KV 的 value 类型由一个 type tag 枚举标记，支持整数/浮点/布尔/字符串/数组，因此架构、超参数、词表、chat 模板都能塞进同一个文件。这是 GGUF「自包含」的关键。</p>
+
+<h2 id="sec4">4. 真实二进制解析示例</h2>
+<p class="sub">以下字节由脚本用 <code>struct</code> 按规范手工构造（非概念图），并真实解析回来。样例文件：<code>safetensors_gguf_demo/demo.gguf</code>、<code>safetensors_gguf_demo/demo.safetensors</code>。</p>
+
+<h3>4.1 GGUF 解析结果（总 480 字节）</h3>
+<pre>magic         = b'GGUF'   (0x46554747)
+version       = 3
+tensor_count  = 2
+kv_count      = 2
+header_end    = byte 215
+data_start    = byte 224   (32 字节对齐)</pre>
+
+<h4>KV 元数据</h4>
+<table>
+<tr><th>key</th><th>type tag</th><th>value</th></tr>
+<tr><td><code>general.architecture</code></td><td>4 (STRING)</td><td><code>llama</code></td></tr>
+<tr><td><code>llama.context_length</code></td><td>0 (UINT32)</td><td><code>4096</code></td></tr>
+</table>
+
+<h4>Tensor Info 表</h4>
+<table>
+<tr><th>name</th><th>shape</th><th>dtype</th><th>offset</th></tr>
+<tr><td><code>token_embd.weight</code></td><td>[4, 8]</td><td><code>F32</code></td><td>224</td></tr>
+<tr><td><code>output.weight</code></td><td>[4, 8]</td><td><code>F32</code></td><td>352</td></tr>
+</table>
+
+<h4>头部字节（带注释）</h4>
+<pre><span class="hl-magic">000000  47 47 55 46</span>  ← magic 'GGUF'
+<span class="hl-meta">        03 00 00 00</span>  ← version = 3
+<span class="hl-meta">        02 00 00 00 00 00 00 00</span>  ← tensor_count = 2
+<span class="hl-meta">000010  02 00 00 00 00 00 00 00</span>  ← kv_count = 2
+<span class="hl-meta">        14 00 00 00 00 00 00 00</span>  ← key len = 20
+000020  67 65 6e 65 72 61 6c 2e 61 72 63 68 69 74 65 63  general.architec
+000030  74 75 72 65  <span class="hl-meta">04 00 00 00</span>  ← type tag = 4 (STRING)
+        <span class="hl-meta">05 00 00 00 00 00 00 00</span>  ← str len = 5
+000040  6c 6c 61 6d 61  ← value 'llama'
+        <span class="hl-meta">14 00 00 00 00 00 00 00</span>  ← next key len = 20
+        6c 6c 61 6d 61 2e 63 6f 6e 74 65 78 74 5f 6c 65 6e 67 74  llama.context_lengt</pre>
+<p class="sub">注释：<span class="hl-magic">橙色</span> = magic，<span class="hl-meta">紫色</span> = 元数据字段，其余为 KV 字符串内容。</p>
+
+<h3>4.2 safetensors 解析结果（总 330 字节）</h3>
+<pre>header_len  = 162 字节
+data_start  = byte 170</pre>
+
+<h4>Header JSON</h4>
+<pre>{"a.weight":{"dtype":"F32","shape":[4,8],"data_offsets":[0,128]},"b.weight":{"dtype":"F32","shape":[2,4],"data_offsets":[128,160]},"__metadata__":{"format":"pt"}}</pre>
+
+<h4>张量</h4>
+<table>
+<tr><th>name</th><th>dtype</th><th>shape</th><th>data_offsets</th></tr>
+<tr><td><code>a.weight</code></td><td><code>F32</code></td><td>[4, 8]</td><td>[0, 128]</td></tr>
+<tr><td><code>b.weight</code></td><td><code>F32</code></td><td>[2, 4]</td><td>[128, 160]</td></tr>
+</table>
+
+<h4>头部字节（带注释）</h4>
+<pre><span class="hl-meta">000000  a2 00 00 00 00 00 00 00</span>  ← header_len = 0xa2 = 162
+        7b 22 61 2e 77 65 69 67  ..."a.weig
+000010  68 74 22 3a 7b 22 64 74 79 70 65 22 3a 22 46 33  ht":{"dtype":"F3
+000020  32 22 2c 22 73 68 61 70 65 22 3a 5b 34 2c 38 5d  2","shape":[4,8]
+000030  2c 22 64 61 74 61 5f 6f 66 66 73 65 74 73 22 3a  ,"data_offsets":
+000040  5b 30 2c 31 32 38 5d 7d 2c 22 62 2e 77 65 69 67  [0,128]},"b.weig
+000050  68 74 22 3a 7b 22 64 74 79 70 65 22 3a 22 46 33  ht":{"dtype":"F3</pre>
+<p class="sub">注释：前 8 字节是长度前缀，其后是纯 JSON 文本（可读）。</p>
+
+<h2 id="sec5">5. 为什么会有两个「平行宇宙」</h2>
+<table>
+<tr><th>关注点</th><th>safetensors 的选择</th><th>GGUF 的选择</th></tr>
+<tr><td>谁在读</td><td>PyTorch <code>state_dict</code></td><td>任意推理引擎（C/Rust/Go/Py）</td></tr>
+<tr><td>数值</td><td>必须精确（训练）→ 不量化</td><td>可容忍有损（推理）→ 大量量化</td></tr>
+<tr><td>部署</td><td>一个目录多文件</td><td>一个文件拷走即用</td></tr>
+<tr><td>元数据扩展</td><td>JSON 键值，扩展需改解析约定</td><td>KV type-tag，天然可增字段</td></tr>
+</table>
+
+<h3>5.1 「单文件自包含」为什么重要</h3>
+<p>GGUF 把架构声明、超参数、完整词表（token 字符串 + BPE 分数）、chat 模板、量化权重全部塞在一个文件里。这带来三个工程收益：</p>
+<ul>
+<li><strong>零外部依赖</strong>：不需要 <code>config.json</code>、<code>tokenizer.json</code> 等附属文件，一个 <code>.gguf</code> 拷到任何机器即可推理。</li>
+<li><strong>防版本漂移</strong>：权重和它对应的配置永远绑定，不会出现「换了 tokenizer 但忘了换权重」的错配。</li>
+<li><strong>简化分发</strong>：模型即文件，下载/分享/归档都只需处理一个二进制。</li>
+</ul>
+<p>相比之下，safetensors 是一个「权重专用容器」，架构和 tokenizer 在外部文件中，必须由加载框架（transformers）统一拼装——这在训练/研究环境是优点（灵活、可单独替换某部分），但在边缘部署是缺点（易错、多文件）。</p>
+
+<h2 id="sec6">6. 量化：GGUF 的体积魔法</h2>
+<p>GGUF 能把 7B 模型压到 4GB 级别，核心靠<strong>原生量化存储</strong>——权重在文件中就已经是低比特格式，加载时零转换。</p>
+
+<h3>6.1 量化如何改变编码</h3>
+<table>
+<tr><th>类型</th><th>每权重比特</th><th>相对 F16 体积</th><th>特点</th></tr>
+<tr><td>F32 / F16</td><td>32 / 16</td><td>100% / 50%</td><td>无损（safetensors 默认）</td></tr>
+<tr><td>Q8_0</td><td>8</td><td>~50%</td><td>块内 int8 + 共享 scale，精度损失小</td></tr>
+<tr><td>Q4_K</td><td>~4.5</td><td>~28%</td><td>分块量化 + 超块 scale，主流选择</td></tr>
+<tr><td>Q4_0</td><td>4</td><td>~25%</td><td>最简单的 4 位量化</td></tr>
+<tr><td>Q2_K / Q3_K</td><td>~2-3</td><td>~15-20%</td><td>极限压缩，质量明显下降</td></tr>
+</table>
+
+<h3>6.2 量化块（block）的编码思路</h3>
+<p>以 <code>Q4_0</code> 为例：每 32 个权重组成一块，存 1 个 F16 scale（缩放因子）+ 32 个 4 位整数。解码时用 <code>weight = int4_value × scale</code> 还原近似值。块内共享 scale 是关键——它把「每个权重存一份高精度」变成「每块存一份高精度 + 一堆低精度偏移」，大幅压缩体积。</p>
+<p>GGUF 的 <code>ggml_dtype</code> 枚举直接声明张量的量化类型，所以加载器一看 dtype 就知道怎么解码，无需外部说明。这就是「原生量化」——量化是格式的一等公民，而非事后处理。</p>
+
+<div class="note">
+<strong>注意：</strong>safetensors 也能存量化权重（如 GPTQ/AWQ 格式），但量化是「约定俗成」的，需要加载代码配合；GGUF 则把量化类型写进了格式规范本身。
+</div>
+
+<h2 id="sec7">7. 转换桥梁：从 HF 到 GGUF</h2>
+<p><code>llama.cpp/convert_hf_to_gguf.py</code> 是两种格式的粘合剂，流程如下：</p>
+<ol>
+<li>读 <code>config.json</code> → 提取架构名、层数、隐层维度、context 长度等，写成 GGUF 的 KV。</li>
+<li>读 <code>tokenizer.json</code> → 把词表（token 字符串 + BPE 分数）写进 <code>tokenizer.ggml.tokens</code> 等 KV。</li>
+<li>读 <code>chat_template.jinja</code> → 写进 <code>tokenizer.chat_template</code> KV（这就是我们之前讨论的 im_start/im_end 格式所在）。</li>
+<li>读 safetensors 权重 → 按新命名规则（<code>blk.0.attn_q.weight</code>）重命名张量，按目标量化类型量化后写入 GGUF 数据块。</li>
+</ol>
+
+<h3>7.1 命名规则的变化</h3>
+<table>
+<tr><th>HF (PyTorch) 命名</th><th>GGUF 命名</th></tr>
+<tr><td><code>model.embed_tokens.weight</code></td><td><code>token_embd.weight</code></td></tr>
+<tr><td><code>model.layers.0.self_attn.q_proj.weight</code></td><td><code>blk.0.attn_q.weight</code></td></tr>
+<tr><td><code>model.layers.0.mlp.gate_proj.weight</code></td><td><code>blk.0.ffn_gate.weight</code></td></tr>
+<tr><td><code>model.norm.weight</code></td><td><code>output_norm.weight</code></td></tr>
+</table>
+<p class="sub">GGUF 用扁平化、架构无关的命名，便于推理引擎统一处理不同模型。</p>
+
+<hr style="border:0;border-top:1px solid var(--border);margin:40px 0 16px;">
+<p class="sub">生成时间：2026-11-03 · 解析脚本 <code>safetensors_gguf_demo/build_format_doc.py</code> · 样例文件 <code>safetensors_gguf_demo/</code></p>
+</div>
+</body>
+</html>
