@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1770" viewBox="0 0 1680 1770" role="img" aria-labelledby="title desc">
+<title id="title">Checkpoint-8343 Ubuntu native integration dependencies</title>
+<desc id="desc">Separate build dependencies, observed runtime library closure, runtime resources and model preparation. Arrows are not dialogue execution order. Ubuntu validated; CentOS and Android deferred.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#526681"/></marker></defs>
+<style>text{font-family:Segoe UI,Arial,sans-serif;fill:#172b45}.title{font-size:32px;font-weight:700}.section{font-size:23px;font-weight:700}.head{font-size:20px;font-weight:700}.body{font-size:18px}.small{font-size:16px;fill:#425671}.mono{font-family:Consolas,monospace;font-size:17px}.edge{fill:none;stroke:#526681;stroke-width:2;marker-end:url(#arrow)}.input{stroke-dasharray:7 5}</style>
+<rect width="1680" height="1770" fill="#f5f8fc"/>
+<text x="60" y="62" class="title">Qwen3 checkpoint-8343 | Dependency map</text>
+<text x="60" y="100" class="body">Isolated Ubuntu CPU experiment: experiments/qwen3_native | Evidence: completed v7 acceptance</text>
+<text x="60" y="134" class="small">Solid: consumer → dependency. Dashed: labeled build/artifact inputs. Not dialogue execution order.</text>
+<rect x="40" y="164" width="1600" height="600" rx="12" fill="#ffffff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="64" y="199" class="section">A. Build dependencies — selected Bazel targets, not a runtime pipeline</text>
+<rect x="70" y="222" width="1510" height="72" rx="12" fill="#e8f0ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="94" y="251" class="head">//experiments/qwen3_native:qwen3_native_test</text>
+<text x="94" y="278" class="body">Standalone executable | Bazel | Ubuntu GCC/G++ 8 | C++11 consumer</text>
+<path d="M295 294V346" class="edge"/>
+<path d="M825 294V346" class="edge"/>
+<path d="M1355 294V346" class="edge"/>
+<rect x="70" y="346" width="450" height="155" rx="12" fill="#eef4ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="92" y="377" class="head">:native_provider</text>
+<text x="92" y="407" class="mono">native_provider.cc / native_provider.h</text>
+<text x="92" y="437" class="body">Uses SDK + offline hook + JsonCpp</text>
+<text x="92" y="468" class="small">No replacement V3 builder or parser</text>
+<rect x="560" y="346" width="530" height="155" rx="12" fill="#eef4ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="582" y="377" class="head">Existing CU libraries (//cu:)</text>
+<text x="582" y="406" class="mono">llm_protocol</text>
+<text x="582" y="432" class="mono">nlu_0_6b_backend / nlu_0_6b_offline_backend</text>
+<text x="582" y="458" class="mono">nlu_0_6b_offline_inference</text>
+<text x="582" y="484" class="small">Same codec and synchronous offline binding</text>
+<rect x="1130" y="346" width="450" height="155" rx="12" fill="#eef4ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="1152" y="377" class="head">Other direct build dependencies</text>
+<text x="1152" y="410" class="mono">@base//base:base</text>
+<text x="1152" y="438" class="mono">@third_party//jsoncpp:jsoncpp</text>
+<text x="1152" y="470" class="small">Test targets also use GTest</text>
+<path d="M295 501V560" class="edge"/>
+<path d="M70 258H52V538H650V560" class="edge"/>
+<text x="76" y="533" class="small">Executable also directly depends on :native_sdk</text>
+<rect x="70" y="560" width="700" height="145" rx="12" fill="#e9f6ef" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="92" y="591" class="head">:native_sdk — candidate selected as one coherent set</text>
+<text x="92" y="621" class="mono">sdk/llama-nfc-v6/include + lib</text>
+<text x="92" y="649" class="mono">Headers: llama.h / ggml*.h / gguf.h</text>
+<text x="92" y="678" class="body">Imports: libllama + libggml + libggml-base + libggml-cpu</text>
+<rect x="840" y="560" width="740" height="145" rx="12" fill="#fff6e5" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="862" y="591" class="head">SDK build: CMake + GCC/G++ 8 + C++17</text>
+<text x="862" y="621" class="body">Pinned llama.cpp: 3bb63cb… | Release CPU shared libraries</text>
+<text x="862" y="649" class="body">Candidate: existing NFC helper enabled for QWEN2/BPE</text>
+<text x="862" y="678" class="mono">QWEN3_NATIVE_SDK=nfc_v6 selects headers, libs and loader</text>
+<path d="M840 633H770" class="edge input"/>
+<text x="788" y="618" class="small">build</text>
+<text x="70" y="739" class="small">Baseline sdk/llama preserved. No new dependency of //cu:server or //cu:libdialogue_api.so.</text>
+<rect x="40" y="788" width="1600" height="330" rx="12" fill="#ffffff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="64" y="823" class="section">B. Runtime library closure — observed Ubuntu loading; groups, not a full DT_NEEDED edge graph</text>
+<rect x="70" y="852" width="360" height="100" rx="12" fill="#e8f0ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="92" y="884" class="head">qwen3_native_test</text>
+<text x="92" y="914" class="mono">C++11 executable</text>
+<text x="92" y="939" class="small">Selected native SDK C API</text>
+<rect x="500" y="852" width="520" height="145" rx="12" fill="#e9f6ef" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="522" y="884" class="head">Mapped SDK set: llama-nfc-v6/lib</text>
+<text x="522" y="915" class="mono">libllama.so.0 / libggml.so.0</text>
+<text x="522" y="945" class="mono">libggml-base.so.0 / libggml-cpu.so.0</text>
+<text x="522" y="975" class="small">All four verified in actual runtime mappings</text>
+<rect x="1090" y="852" width="490" height="175" rx="12" fill="#f1effb" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="1112" y="884" class="head">Observed host runtime closure</text>
+<text x="1112" y="915" class="mono">libstdc++.so.6 / libgcc_s.so.1</text>
+<text x="1112" y="944" class="mono">libc.so.6 / libm.so.6 / libdl.so.2</text>
+<text x="1112" y="973" class="mono">libpthread.so.0 / libgomp.so.1</text>
+<text x="1112" y="1002" class="mono">ELF loader: ld-linux-x86-64.so.2</text>
+<path d="M430 902H500" class="edge"/>
+<path d="M1020 922H1090" class="edge"/>
+<text x="70" y="1062" class="small">Strict relocation checks + eager binding + runtime mappings confirmed the selected closure.</text>
+<text x="70" y="1091" class="small">C linkage does not remove glibc, libstdc++, CPU-ISA or platform compatibility requirements.</text>
+<rect x="40" y="1142" width="1600" height="295" rx="12" fill="#ffffff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="64" y="1177" class="section">C. Runtime resources — selected files, not libraries compiled into the executable</text>
+<rect x="70" y="1202" width="500" height="145" rx="12" fill="#fff6e5" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="92" y="1233" class="head">Configuration selection</text>
+<text x="92" y="1263" class="mono">selector.json → profiles.json → protocols/v3.json</text>
+<text x="92" y="1293" class="mono">V7: response_unknown_marker = &quot;unknown&quot;</text>
+<text x="92" y="1323" class="small">Existing codec reads the selected descriptor</text>
+<rect x="610" y="1202" width="460" height="145" rx="12" fill="#fff6e5" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="632" y="1233" class="head">Model and rendering inputs</text>
+<text x="632" y="1263" class="mono">F32.gguf OR Q8_0.gguf</text>
+<text x="632" y="1293" class="mono">checkpoint-8343/chat_template.jinja</text>
+<text x="632" y="1323" class="small">Thinking omitted; seven business request fields</text>
+<rect x="1110" y="1202" width="470" height="145" rx="12" fill="#fff6e5" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="1132" y="1233" class="head">Acceptance-only inputs</text>
+<text x="1132" y="1263" class="body">Six tokenizer references (incl. NFC probe)</text>
+<text x="1132" y="1293" class="mono">semantic-smoke-unknown-v7.json</text>
+<text x="1132" y="1323" class="small">Original fixture and old failures preserved</text>
+<path d="M320 1347V1380" class="edge input"/>
+<path d="M840 1347V1380" class="edge input"/>
+<path d="M1345 1347V1380" class="edge input"/>
+<text x="195" y="1411" class="body">Read by the standalone test/provider. Resource presence alone does not prove activation.</text>
+<rect x="40" y="1461" width="1600" height="210" rx="12" fill="#ffffff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="64" y="1496" class="section">D. Model artifact preparation — separate from native runtime library dependencies</text>
+<rect x="70" y="1518" width="360" height="78" rx="12" fill="#eef4ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="86" y="1548" class="head">Selected full checkpoint</text>
+<text x="86" y="1578" class="small">safetensors + tokenizer assets</text>
+<rect x="480" y="1518" width="350" height="78" rx="12" fill="#eef4ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="496" y="1548" class="head">Private Python converter</text>
+<text x="496" y="1578" class="small">HF / Torch / conversion tools</text>
+<rect x="880" y="1518" width="300" height="78" rx="12" fill="#eef4ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="896" y="1548" class="head">F32 GGUF</text>
+<text x="896" y="1578" class="small">Full-precision reference</text>
+<rect x="1230" y="1518" width="350" height="78" rx="12" fill="#eef4ff" stroke="#bccbdd" stroke-width="1.5"/>
+<text x="1246" y="1548" class="head">Q8_0 GGUF</text>
+<text x="1246" y="1578" class="small">Derived by native quantizer</text>
+<path d="M430 1556H480" class="edge input"/>
+<path d="M830 1556H880" class="edge input"/>
+<path d="M1180 1556H1230" class="edge input"/>
+<text x="70" y="1631" class="small">Preparation tools stay out of native LD_LIBRARY_PATH. No Python/HF inference dependency in the native executable.</text>
+<text x="60" y="1710" class="head">Validated v7: 29 tests PASS | F32: 8 fixed + 10 warm PASS | Q8: 8 fixed + 10 warm PASS</text>
+<text x="60" y="1742" class="small">Ubuntu standalone only. Production GCC 4.9.3/C++11 unchanged. CentOS/Android integration deferred.</text>
+</svg>

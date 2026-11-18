@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Qwen3 0.6B GPU 独立集成计划</title><style>
+:root{color-scheme:light;--ink:#182b3a;--muted:#536575;--blue:#175c8f;--line:#d7e1e8;--paper:#f3f6f9}
+*{box-sizing:border-box}body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);max-width:1100px;margin:auto;padding:32px 24px;line-height:1.65}
+header{border-top:5px solid var(--blue);padding:22px 0}h1{font-size:2.1rem;line-height:1.2}h2{border-bottom:1px solid var(--line);padding-bottom:10px;margin-top:44px}h3{margin-top:26px}a{color:var(--blue)}a:focus-visible{outline:3px solid #df9400;outline-offset:3px}
+.small,footer{font-size:.9rem;color:var(--muted)}nav{background:var(--paper);padding:18px 24px;border-radius:8px}nav ol{columns:2;margin:0;padding-left:22px}section{scroll-margin-top:20px}.note,.warning{padding:14px 18px;margin:18px 0;border-left:4px solid var(--blue);background:#edf5fb}.warning{border-color:#aa6500;background:#fff5e5}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:.94rem}th,td{padding:10px;text-align:left;vertical-align:top;border:1px solid var(--line)}th{background:var(--paper)}code{font-family:ui-monospace,Consolas,monospace;font-size:.92em;overflow-wrap:anywhere}pre{padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:5px;overflow-x:auto;line-height:1.5}pre code{overflow-wrap:normal}figure{margin:20px 0}figcaption{font-size:.9rem;color:var(--muted)}.tag{font-weight:700;white-space:nowrap}footer{border-top:1px solid var(--line);margin-top:36px;padding-top:16px}
+@media(max-width:650px){body{padding:18px 14px}h1{font-size:1.7rem}nav ol{columns:1}th,td{padding:8px}}
+@media print{body{max-width:none;padding:0;font-size:10pt}nav{display:none}pre{white-space:pre-wrap;overflow-wrap:anywhere}tr,figure{break-inside:avoid}h2,h3{break-after:avoid}a{color:inherit}}
+
+html{scroll-behavior:smooth}body{font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.lead{font-size:1.12rem}.eyebrow{letter-spacing:.08em;text-transform:uppercase;font-size:.8rem;font-weight:700;color:#175c8f}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:22px 0}.card{background:#f3f6f9;border:1px solid #d7e1e8;border-radius:9px;padding:16px}.card strong{display:block;margin-bottom:7px}
+.pass{color:#13634d}.pending{color:#995700}.blocked{color:#9e342b}.pill{display:inline-block;border-radius:4px;background:#e9eff5;padding:2px 7px;font-size:.82rem;font-weight:650}
+details{border:1px solid #d7e1e8;border-radius:6px;padding:12px 16px;margin:18px 0}summary{cursor:pointer;font-weight:650}.diagram{display:block;width:100%;height:auto;background:#f8fafc;border:1px solid #d7e1e8;border-radius:8px}.source{font-size:.88rem;color:#536575}
+@media(max-width:650px){.cards{grid-template-columns:1fr}.diagram{min-width:580px}.diagram-wrap{overflow-x:auto}h2{font-size:1.35rem}}
+@media print{.cards{display:block}.card{margin-bottom:8px}details{break-inside:avoid}.diagram{max-height:340px}a[href^="http"]{overflow-wrap:anywhere}}
+</style></head><body>
+<header id="top"><p class="eyebrow">Dialogue V3 · 单设备优先 · 计划草案</p><h1>Qwen3 0.6B GPU 独立集成计划</h1><p class="lead">以 v7 已通过的 Ubuntu CPU F32/Q8 基线为参照，验证同一 C++ 集成在 GPU 上的正确性、资源占用和实际收益。</p><p class="small">2026-10-27 · 配套 <a href="qwen3-native-cpp-deployment-guide.html">CPU 指南与验收基线</a> · 本文件没有授予 GPU 执行权限，也没有修改远端 PLAN/CHECK 状态。</p></header>
+<aside class="note"><strong>目标服务器已指定：10.1.120.40。</strong>历史记录的主机名为 <code>lah-Precision-7820-Tower</code>，账户为 <code>daigd</code>。先读取已有环境清单与 v7 执行记录；缺失的 CPU/GPU 型号、显存、OS、驱动和 toolkit 由执行端只读探测补齐，不再把目标主机作为待用户提供项。<strong>v7 CPU 已完成；GPU 仍为未执行计划。</strong>本次可检索记录没有具体 GPU 数据，不能从塔式工作站名称推断已安装哪张卡或假定 CUDA。</aside>
+<nav aria-label="目录"><ol><li><a href="#decision">路线选择与主要差别</a></li><li><a href="#baseline">共享基线与 CPU 前置项</a></li><li><a href="#hardware">硬件和后端选择</a></li><li><a href="#phases">实施阶段和验收证据</a></li><li><a href="#matrix">最小比较矩阵</a></li><li><a href="#metrics">计时、内存和质量</a></li><li><a href="#integration">C++ 集成与并发边界</a></li><li><a href="#exit">完成标准与回退</a></li><li><a href="#sources">来源与待填写项</a></li></ol></nav>
+<section id="decision"><h2>1. 建议路线：现有 llama.cpp 增加 GPU 后端</h2>
+<p><strong>此处是建议，尚未替用户确定硬件后端。</strong>第一阶段优先复用现有 provider、GGUF、模板、NFC、解析和 callback，只改变模型计算后端。这样能利用已经完成的 CPU 验证，并把新的差异集中在硬件执行层。</p>
+<table><thead><tr><th>路线</th><th>适合的目标</th><th>新增成本 / 当前定位</th></tr></thead><tbody>
+<tr><td>A · 原生 GPU（建议首选）</td><td>C++ 本机推理、单设备验证；保留现有 hook 与模型格式。</td><td>新增 GPU SDK/驱动、设备选择、显存、同步和失败处理；本计划详细展开这一条。</td></tr>
+<tr><td>B · GPU 服务</td><td>已有 HTTP 架构，或需要把 GPU 与多个客户端共享、独立扩容和调度。</td><td>复用 V3 HTTP 请求/解析层，但引擎、服务端模板、模型格式、排队和部署生命周期都要另验；服务不一定与客户端同主机。</td></tr>
+</tbody></table>
+<p>已有 LMDeploy 路线可以作为 B 的基础，不能把当前运行的 nlu_v10 权重当作 checkpoint-8343。比较 A/B 时同时改变引擎和传输方式，结果应称“部署方案比较”，不能全部解释为 GPU 相对 CPU 的收益。<a href="https://lmdeploy.readthedocs.io/en/latest/llm/api_server.html">服务 API 文档</a>。</p>
+<div class="cards"><div class="card"><strong>设备选择</strong>CPU / GPU：决定支持的计算在哪里执行。</div><div class="card"><strong>权重表示</strong>F32 / Q8：决定权重如何保存和计算；两种设备都需验证各自支持情况。</div><div class="card"><strong>接入方式</strong>进程内 / HTTP：决定故障、调度和运行时边界。</div></div>
+<p>不因为使用 GPU 而重训模型，也不在本阶段更换 checkpoint、重写业务 parser、引入多 GPU、跨请求动态 batching 或加入 Q4/Q5。CPU 比较基线继续保留；是否最终采用 GPU 由正确性与实测收益决定。</p>
+</section>
+<section id="baseline"><h2>2. 共享基线：协议只维护一份</h2>
+<table><thead><tr><th>资产</th><th>冻结或确认的内容</th></tr></thead><tbody>
+<tr><td>模型</td><td>checkpoint-8343。现有 F32 / Q8_0 文件、大小、SHA-256 见 CPU 指南；不重新转换来启动 GPU 工作。</td></tr>
+<tr><td>SDK</td><td>基线 commit <code>3bb63cbcbfb62056c84fe9e521b0f3d756d29c32</code> + 经验证的 NFC patch。CPU 二进制哈希不能用于新 GPU 构建，后者需要独立身份与构建记录。</td></tr>
+<tr><td>模板 / tokenizer</td><td>服务 omitted-thinking 路径；后缀止于 assistant + LF。保留 Qwen2/BPE NFC 修复和全部六例 reference。</td></tr>
+<tr><td>响应协议</td><td><code>"response_unknown_marker": "unknown"</code>，v7 已应用并通过 CPU F32/Q8 重跑；裸 unknown 为预期业务拒识，模型输出与 parser 实现不变。其他 parser、multi marker、history eligibility 规则沿用。</td></tr>
+<tr><td>推理参数</td><td>延续现有七字段请求和有效采样参数、上下文/输出预算；同时记录 SDK 实际配置，不能只保存请求 JSON。</td></tr>
+<tr><td>停止策略</td><td>复用并记录 v7 的实际有效停止集合。此前 native/受控 HF 集合与 checkpoint 默认不同；GPU 对比不顺带改变这个变量。后续部署若调整，单独验证并更新相关 CPU 对照，不重开已完成的 v7。</td></tr>
+<tr><td>证据</td><td>保存 raw output、生成 IDs、parser 结果、语义结果、reset 结果、运行时身份与命令；CPU/GPU 引用相同配置版本。</td></tr>
+</tbody></table>
+<p><strong>CPU 前置项已满足（用户提供的 v7 报告）：</strong>29/29 测试通过，F32 与 Q8 的原固定验收均通过，最终 review 无验收关键问题，远端计划为 DONE。无需再次解决 marker 或重做模型转换。GPU F32 仍须通过自身门禁；GPU Q8 依赖 GPU F32 通过，并引用已有 CPU Q8 基线。</p>
+<table><thead><tr><th>CPU 基线</th><th>固定用例</th><th>Warm 重复</th><th>Warm 后端耗时中位数</th></tr></thead><tbody>
+<tr><td>F32</td><td>8/8 通过</td><td>10/10 通过</td><td>1,219.14 ms</td></tr>
+<tr><td>Q8_0</td><td>8/8 通过</td><td>10/10 通过</td><td>666.13 ms</td></tr>
+</tbody></table>
+<p>Q8 的报告中位数低约 45.4%，耗时比约 1.83。将 Q8 CPU 作为实用性能参照，F32 保留为诊断参照；这不是吞吐或产品 SLA 结论。GPU 必须匹配原计时边界、输入/输出长度、构建模式与负载；完整业务端到端耗时另行记录。CPU 每模型只有 10 个 warm 样本，不声称已测得稳定 p95。</p>
+<p>输入 bytes/IDs 必须精确一致。生成 ID 精确一致是有价值的诊断指标，但不预设所有 GPU kernel 的浮点执行与 CPU 位级相同。固定用例的协议/预期语义不得放宽；生成差异逐项保留、定位。更广质量集的容许退化阈值在执行前冻结。</p>
+</section>
+<section id="hardware"><h2>3. 先根据实际 GPU 选择后端</h2>
+<p><strong>G0 直接面向 10.1.120.40：</strong>执行端先按已有 SSH alias/session 合约核对主机身份，复用该服务器环境资料及 v7 build/run receipts；不把 cloud-222 的训练/服务 GPU 当成此机硬件。历史主机名和账户是定位线索，具体硬件以现有清单或当前只读采集为准。</p>
+<table><thead><tr><th>环境项</th><th>当前已知与获取方式</th></tr></thead><tbody>
+<tr><td>主机</td><td>10.1.120.40；历史名称 lah-Precision-7820-Tower，账户 daigd。核对与 new2_wtp184-server 及 v7 receipt 的映射。</td></tr>
+<tr><td>CPU / RAM / OS</td><td>CPU 路线报告为 Ubuntu；准确型号、核数、内存和系统版本先读既有记录，缺项只读查看 lscpu、free、/etc/os-release、glibc 版本。</td></tr>
+<tr><td>GPU / 设备内存</td><td>型号、数量、设备 ID、总量/可用量、共享负载从既有报告及本机现有枚举工具取得。工作站型号不等于 GPU 型号；总显存不等于可用显存。</td></tr>
+<tr><td>驱动 / GPU 工具链</td><td>分别记录运行驱动与实际已安装 toolkit/编译器、路径和版本；不要只凭设备工具显示的兼容性版本就认定相应编译工具已安装。</td></tr>
+</tbody></table>
+<p>本轮文档更新没有连接服务器或采集硬件。下一执行任务应自动完成以上只读核对并保存环境记录，再选定一个后端，不要求用户重新手工整理已有资料。</p>
+<table><thead><tr><th>硬件</th><th>候选后端</th><th>先核实</th></tr></thead><tbody>
+<tr><td>NVIDIA Linux GPU</td><td>CUDA</td><td>型号/compute capability、显存、驱动与 CUDA toolkit、nvcc host compiler 支持、当前 pin 的 GPU kernel 与 Q8 支持。</td></tr>
+<tr><td>Intel Arc / Intel 集显</td><td>SYCL 或 Vulkan，选一个先做</td><td>驱动、oneAPI/编译器或 Vulkan 能力、设备内存类型。不能使用 CUDA 方案替代。</td></tr>
+<tr><td>AMD GPU</td><td>设备受支持时 HIP/ROCm，或 Vulkan</td><td>具体 GPU/OS 支持与当前 pin，不能仅凭厂商名认定兼容。</td></tr>
+<tr><td>Android GPU / NPU</td><td>另外的目标平台计划</td><td>GPU 后端、SoC/驱动、NDK/ABI/API；NPU 则另需厂商 SDK、模型转换及算子支持验证。</td></tr>
+</tbody></table>
+<p class="source">来源：<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md">llama.cpp 后端构建说明</a>、<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/SYCL.md">SYCL 后端说明</a>。这些是上游当前能力介绍，当前项目 pin 的实际支持仍需源码/构建验证。</p>
+<p>盘点仅运行目标主机已有的只读工具：NVIDIA 可用 nvidia-smi；Vulkan 可用 vulkaninfo；SYCL 可用 sycl-ls。工具缺失不等于设备不存在，不为盘点盲目安装全部后端。记录 GPU UUID/设备 ID、驱动、可用设备内存、是否与其他任务共享、OS/glibc、编译器与 CPU 型号。</p>
+<p>保留 CPU SDK 的 GCC8/C++17 与 harness C++11 基线。GPU 工具链如果要求不同 host compiler，在独立 GPU 构建环境中解决；不要强行让 CUDA/oneAPI 使用不受支持的 GCC8，也不要顺带升级生产 Dialogue 工具链。</p>
+</section>
+<section id="phases"><h2>4. 分阶段实现，每一步留下可复核证据</h2>
+<table><thead><tr><th>阶段</th><th>工作</th><th>通过条件</th></tr></thead><tbody>
+<tr><td>G0 · 定义目标与预算</td><td>在 10.1.120.40 复用环境记录、补齐只读采集，记录 GPU/后端、内存上限、总调用/耗时上限和目标。引用 v7 CPU DONE 与原始结果身份。</td><td>选定一个后端；将“探索性测量”与“正式性能达标”区别写清。</td></tr>
+<tr><td>G1 · 构建候选</td><td>同一个 SDK pin + NFC patch；独立 GPU build/install 目录。沿现有 canonical runner 增加必要选择能力，不创造平行的无监控执行流程。</td><td>编译、链接、运行库闭包及 device enumeration 通过；确认实际装载的整组 libllama/GGML 和后端库身份。</td></tr>
+<tr><td>G2 · 设备加载与放置</td><td>核对设备可见性，加载 F32，记录 offloaded 层/张量及已分配缓冲的位置和大小；本阶段不生成。</td><td>加载与实际放置符合计划。分配显存只证明加载/放置，尚不证明 GPU 已执行推理；缺少设备时明确失败。</td></tr>
+<tr><td>G3 · 输入与模型无关检查</td><td>在候选实际加载路径跑全部六例 reference，以及不依赖真实生成的 parser/provider 回归。</td><td>字节/ID 精确一致；unknown 合法拒识、畸形响应仍失败。本阶段通过之前不执行真实生成。</td></tr>
+<tr><td>G4 · GPU 执行与 F32</td><td>G3 通过后运行原固定语义用例、A–B–A 与既有真实推理错误路径检查。补充实际 GPU 执行证据，与 CPU F32 对照；保存 generated IDs、raw text、停止原因、parser 语义。</td><td>目标 GPU 确实执行模型计算，未静默回落 CPU；原协议、固定语义及 reset 验收通过。若不同，查有效参数、停止规则、计算精度和首个差异；必要的 HF/logits 诊断先计入预算。</td></tr>
+<tr><td>G5 · GPU Q8</td><td>使用同一个 Q8 GGUF，在 GPU F32 与 CPU Q8 已通过后验证。后端若不支持该格式，记录限制，不偷偷换格式。</td><td>同套协议/语义/reset 门禁通过；分别记录设备影响和量化影响。</td></tr>
+<tr><td>G6 · 对照测量</td><td>同一主机、匹配构建模式/参数/输入输出长度，分开 cold、warm、prefill、decode 和端到端时间；观察 CPU/RAM/GPU 内存与共享负载。</td><td>原始样本与方法可复核；目标已预定则判定达标，否则仅给观测值。性能结论不替代语义通过。</td></tr>
+<tr><td>G7 · 形成候选交付</td><td>整理 SDK/模型/配置/驱动要求、显式设备选择、受控失败处理和回退方式。保持单请求 provider 的初期边界。</td><td>独立 GPU 候选可复现；产品代码接入、部署、并发扩展另有明确任务和验收。</td></tr>
+</tbody></table>
+<h3>构建参数只是线索，不是已验证的一键命令</h3>
+<pre><code># 上游常见开关，仅在已选定硬件、核对 pinned source 后使用其中一个：
+# NVIDIA:    -DGGML_CUDA=ON
+# Intel:     -DGGML_SYCL=ON
+# Vulkan:    -DGGML_VULKAN=ON
+# AMD HIP:   -DGGML_HIP=ON
+# 同时记录：CPU/GPU 编译器、目标架构、Release 设置、独立安装目录。
+# 本项目现有 harness 尚未确认支持任何新增 GPU CLI 参数。</code></pre>
+<p>选择设备、offload 层数和缓冲位置应在 provider 初始化处接入，通过 pin 的实际 C API 实现。不能只把 CPU 版本中的 <code>n_gpu_layers=0</code> 改大：还需要已编译 GPU 后端、可用设备、正确运行库及实际放置证据。</p>
+<p><strong>纯 CPU 对照也需要证明：</strong>GPU-enabled 构建即使层数为 0，也可能把部分算子交给 GPU。优先使用 CPU-only 候选 SDK 作参照；如需在同一 GPU 构建里禁用 GPU，按 pin 核实设备/算子/KV offload 控制。上游 CLI 的 <code>--device none</code> 不能未经实现就写成现有 harness 参数。<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md#notes-about-gpu-accelerated-backends">上游说明</a>。</p>
+</section>
+<section id="matrix"><h2>5. 最小矩阵：一次改变一个主要变量</h2>
+<table><thead><tr><th>比较组</th><th>用途</th><th>约束</th></tr></thead><tbody>
+<tr><td>CPU F32 ↔ GPU F32</td><td>设备/后端影响</td><td>同一 F32 GGUF、SDK 源码+补丁、协议、输入、采样/stop、上下文和构建优化等级。记录实际计算精度。</td></tr>
+<tr><td>CPU F32 ↔ CPU Q8</td><td>CPU 上量化影响</td><td>复用 v7 已通过的 F32/Q8 与 warm 数据，不因 GPU 计划出现就无理由重跑转换。</td></tr>
+<tr><td>GPU F32 ↔ GPU Q8</td><td>GPU 上量化与性能变化</td><td>同一 GPU 后端/设备；固定语义用例不变。F32 文件名不保证 GPU 中所有运算都为 FP32。</td></tr>
+<tr><td>CPU Q8 ↔ GPU Q8</td><td>实用候选部署比较</td><td>同一 Q8 GGUF，完整语义/协议通过后比较端到端时延和资源。</td></tr>
+</tbody></table>
+<p>先验证单 GPU、单请求。显存足够时以完整支持的 offload 为初始候选；不足时再评估明确的部分 offload。部分 offload 可能引入额外传输和同步，不默认越多层越快。没有数据证明收益时不扩展多 GPU 或复杂调度。</p>
+<p>目标是在 10.1.120.40 上比较 CPU 与 GPU。先从 v7 receipts 核对已有 CPU 数据确实来自该机且条件匹配；若证据显示并非同机，则保留 v7 为历史参考，在预算内补同机 CPU timing。不同主机的差值不能全部解释为 GPU 加速。</p>
+<p>v7 实际执行为每模型 8 个固定调用 + 10 次 warm，两个模型合计 20 次 warm。GPU 矩阵须单独登记累计调用数、warm 数、诊断额度和总时限；沿用已有资源限制，不自动把 CPU 执行额度无限复制到每种 GPU 配置。</p>
+</section>
+<section id="metrics"><h2>6. 看端到端收益，而不只看 token/s</h2>
+<p>本项目最终要得到可用的 NLU 结果。建议测量边界为 <strong>请求已就绪 → 完整续写生成 → parser 完成并得到语义结果</strong>；排队时间单独记录。CPU 和 GPU 使用相同边界。对短输出，模板、分词、调度等固定开销可能占较大比例，这是需要实测的假设，不是已观察结论。</p>
+<table><thead><tr><th>指标</th><th>记录方式</th><th>避免误读</th></tr></thead><tbody>
+<tr><td>Cold load / 首次调用</td><td>分别记录模型加载、context 初始化、首次生成；保留 GPU 首次初始化/JIT 的影响。</td><td>不要把首次开销混入所有 warm 调用，也不要把所有真实首次开销隐藏掉。</td></tr>
+<tr><td>Prefill / decode</td><td>分别记录输入处理时长、逐 token 生成时长，及实际输入/输出 token 数。</td><td>NLU 最终等待完整输出；TTFT、decode token/s 都不能替代完整请求时延。</td></tr>
+<tr><td>GPU 同步</td><td>沿已确认的完成边界计时，确认设备工作已完成；若 API 仅提交异步工作，使用该 pin/后端提供的完成机制。</td><td>不把 CPU 提交 kernel 的时间当成 GPU 完成时间。</td></tr>
+<tr><td>Resident warm</td><td>模型保持加载，但沿现有 reset 语义处理每次请求；保存原始每次数据及 min / median / max。</td><td>当前 reset 测试不等同于持久复用 KV 的性能，不顺带引入历史前缀缓存。</td></tr>
+<tr><td>内存与显存</td><td>记录 RAM 峰值、设备内存基线/峰值、模型/KV/计算缓冲、context 大小和并发数。</td><td>F32 文件约 2.39 GB、Q8 文件约 0.639 GB，只是磁盘文件大小；不是总运行内存或显存要求。</td></tr>
+<tr><td>协议与质量</td><td>区分 raw 文本、解析成功、业务拒识、预期语义，以及 held-out 集上的 domain / intent / slot 指标。</td><td>unknown 可以是合法拒识；不能算解析失败，也不能据此宣称它一定是正确语义。</td></tr>
+<tr><td>吞吐与并发</td><td>以后独立定义请求到达模型、队列、会话数量、资源上限和持出质量。</td><td>n_batch / n_ubatch 是 token 处理预算，不代表支持相同数量的并发业务请求。</td></tr>
+</tbody></table>
+<p>性能构建需匹配优化等级；不要用 CPU Debug 对 GPU Release 宣称硬件收益。为实际用于计时的二进制重跑必要正确性检查。若做更多样本、稳定 p95、并发或长时稳定性，另设明确预算；现有合计 20 次 warm（F32/Q8 各 10 次）仅提供初步观察。</p>
+<p>参考 <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/llama-bench/README.md">llama-bench 的输入处理/生成测量区分</a>。它可帮助解释引擎性能，但项目验收仍以 V3 完整调用和解析结果为准。</p>
+</section>
+<section id="integration"><h2>7. C++ 层复用与故障处理</h2>
+<ul>
+<li><strong>复用业务层：</strong>BuildRequest、ParseResponse、history eligibility、同步 hook / callback 和语义契约共用；设备选择在初始化配置，不增加七字段业务请求。</li>
+<li><strong>清楚划分所有权：</strong>模型常驻；context / sampler 的生命周期沿原实现。GPU buffer 必须活到相关设备操作完成后才释放。</li>
+<li><strong>起步保持单请求：</strong>现有 provider 不是线程安全的。GPU 不会自动让一个 context 可被并发共享；跨会话扩展另设隔离/排队设计。同 session 正常轮次由调用方/宿主保持串行；此 provider 的单请求与生命周期约束不变。</li>
+<li><strong>显式失败：</strong>设备不可见、OOM、后端加载或执行错误保留原始原因，沿现有错误边界返回。GPU 测试不能通过静默回落 CPU 掩盖失败。</li>
+<li><strong>回退可控：</strong>初期在进程/启动配置层显式选回已验证 CPU SDK。自动在线回退属于后续产品设计，需考虑剩余 deadline、重复执行和唯一 callback。</li>
+<li><strong>SDK 成套选择：</strong>GPU 构建可能增加后端依赖库；按实际 build receipt 成套打包，不只复制一个 libllama.so，更不能混装 CPU/GPU 不同 revision 的 GGML 库。</li>
+</ul>
+<p>GGUF、SDK、运行环境分别记录身份。模型文件可以在支持该格式的 CPU/GPU 后端之间复用；二进制库通常要按后端和目标平台构建。C API 有助于隔离业务 C++ 标准，但不会消除 glibc、libstdc++、驱动、ISA 和设备兼容问题。</p>
+</section>
+<section id="exit"><h2>8. 何时算这一阶段完成</h2>
+<ol>
+<li>CPU marker 修正后的基线可复现；GPU 使用同一模型/模板/协议/NFC 身份。</li>
+<li>目标硬件和实际 offload 已证明，GPU F32 的输入、协议、固定语义、reset 和错误路径验收通过。</li>
+<li>GPU Q8 如果纳入本阶段，必须给出单独结果；不支持或未跑时明确写出，不宣称整个矩阵完成。</li>
+<li>同边界、同条件的时延与资源数据已保存；对预先确定的目标给出通过/未通过。目标尚未确定时只能结题为探索性验证。</li>
+<li>候选 SDK、配置和环境要求可复现，CPU 基线保留；产品发布、CentOS/Android 和并发规模尚未验收的部分继续单列。</li>
+</ol>
+<p>独立 GPU 验证通过并不强制采用 GPU。如果实测端到端收益不足、资源竞争明显，或 CPU 已满足需求，保留 CPU 是合理选择。进一步优化应由测量显示的主要耗时决定。</p>
+</section>
+<section id="sources"><h2>9. 来源、证据等级与待填写信息</h2>
+<p>项目事实来自上传的 CPU 指南、v5 抓取包的既有复核、用户提供的 v6/v7 执行报告，以及用户本轮指定的 10.1.120.40 和检索到的历史主机名称/账户。本次只形成文档，没有远端源码修改、模型调用、GPU 探测或环境安装。以下实现建议尚待按实际硬件验证。</p>
+<table><thead><tr><th>执行前填写</th><th>当前值</th></tr></thead><tbody>
+<tr><td>目标主机</td><td>10.1.120.40（用户指定）；历史主机名 lah-Precision-7820-Tower，账户 daigd。</td></tr><tr><td>CPU / OS / GPU / 内存 / 驱动</td><td>先复用该机已有记录；本次未取得具体配置，执行端只读补齐并核对 v7 环境映射。</td></tr><tr><td>选中的后端与编译工具链</td><td>待硬件确认后选择</td></tr><tr><td>首要目标：本机时延或服务吞吐</td><td>建议先验证本机单请求时延；待用户确认</td></tr><tr><td>性能与质量阈值、总调用/时间/设备内存预算</td><td>正式执行前填写；不得事后按结果调整阈值</td></tr><tr><td>CPU config / SDK / result 身份</td><td>v7 已完成；从远端详细报告/PLAN/CHECK 引用实际路径和哈希，不重新生成或捏造结果。</td></tr>
+</tbody></table>
+<p>官方参考（查阅于 2026-10-27）：<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md">后端构建</a>；<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/SYCL.md">SYCL</a>；<a href="https://github.com/ggml-org/llama.cpp/blob/master/include/llama.h">当前 C API</a>；<a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/llama-bench/README.md">llama-bench</a>；<a href="https://lmdeploy.readthedocs.io/en/latest/inference/turbomind.html">TurboMind 架构</a>；<a href="https://lmdeploy.readthedocs.io/en/latest/llm/api_server.html">LMDeploy 服务</a>。</p>
+<p class="source">上游 master 文档用于理解选项，不作为 pinned SDK 已支持某接口的证据。正式修改前以本地 pin + applied.patch + 实际头文件为准。</p>
+</section><footer><p>文档检查：HTML 结构、内部锚点与配套文件链接已通过静态检查；当前环境缺少可用浏览器，未完成浏览器视觉验证。</p>GPU 计划草案 · 2026-10-27 · 已同步 v7 CPU 验收及 10.1.120.40 目标；本次未连接服务器，未执行 GPU 构建、推理或部署。<a href="#top">返回顶部</a></footer></body></html>

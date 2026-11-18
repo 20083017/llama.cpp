@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen3 0.6B C++ 部署指南｜CPU 验收基线与 GPU 路线</title>
+<style>
+:root{color-scheme:light;--ink:#182b3a;--muted:#536575;--blue:#175c8f;--line:#d7e1e8;--paper:#f3f6f9}
+*{box-sizing:border-box}body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);max-width:1100px;margin:auto;padding:32px 24px;line-height:1.65}
+header{border-top:5px solid var(--blue);padding:22px 0}h1{font-size:2.1rem;line-height:1.2}h2{border-bottom:1px solid var(--line);padding-bottom:10px;margin-top:44px}h3{margin-top:26px}a{color:var(--blue)}a:focus-visible{outline:3px solid #df9400;outline-offset:3px}
+.small,footer{font-size:.9rem;color:var(--muted)}nav{background:var(--paper);padding:18px 24px;border-radius:8px}nav ol{columns:2;margin:0;padding-left:22px}section{scroll-margin-top:20px}.note,.warning{padding:14px 18px;margin:18px 0;border-left:4px solid var(--blue);background:#edf5fb}.warning{border-color:#aa6500;background:#fff5e5}
+.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;margin:16px 0;font-size:.94rem}th,td{padding:10px;text-align:left;vertical-align:top;border:1px solid var(--line)}th{background:var(--paper)}code{font-family:ui-monospace,Consolas,monospace;font-size:.92em;overflow-wrap:anywhere}pre{padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:5px;overflow-x:auto;line-height:1.5}pre code{overflow-wrap:normal}figure{margin:20px 0}figcaption{font-size:.9rem;color:var(--muted)}.tag{font-weight:700;white-space:nowrap}footer{border-top:1px solid var(--line);margin-top:36px;padding-top:16px}
+@media(max-width:650px){body{padding:18px 14px}h1{font-size:1.7rem}nav ol{columns:1}th,td{padding:8px}}
+@media print{body{max-width:none;padding:0;font-size:10pt}nav{display:none}pre{white-space:pre-wrap;overflow-wrap:anywhere}tr,figure{break-inside:avoid}h2,h3{break-after:avoid}a{color:inherit}}
+
+html{scroll-behavior:smooth}body{font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.lead{font-size:1.12rem}.eyebrow{letter-spacing:.08em;text-transform:uppercase;font-size:.8rem;font-weight:700;color:#175c8f}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:22px 0}.card{background:#f3f6f9;border:1px solid #d7e1e8;border-radius:9px;padding:16px}.card strong{display:block;margin-bottom:7px}
+.pass{color:#13634d}.pending{color:#995700}.blocked{color:#9e342b}.pill{display:inline-block;border-radius:4px;background:#e9eff5;padding:2px 7px;font-size:.82rem;font-weight:650}
+details{border:1px solid #d7e1e8;border-radius:6px;padding:12px 16px;margin:18px 0}summary{cursor:pointer;font-weight:650}.diagram{display:block;width:100%;height:auto;background:#f8fafc;border:1px solid #d7e1e8;border-radius:8px}.source{font-size:.88rem;color:#536575}
+@media(max-width:650px){.cards{grid-template-columns:1fr}.diagram{min-width:580px}.diagram-wrap{overflow-x:auto}h2{font-size:1.35rem}}
+@media print{.cards{display:block}.card{margin-bottom:8px}details{break-inside:avoid}.diagram{max-height:340px}a[href^="http"]{overflow-wrap:anywhere}}
+</style>
+</head>
+<body>
+<header id="top">
+<p class="eyebrow">WTP184 · Dialogue V3 · checkpoint-8343</p>
+<h1>Qwen3 0.6B C++ 部署指南<br>CPU 验收基线与 GPU 路线</h1>
+<p class="lead">Ubuntu CPU 独立集成已按 v7 完成验收。复用同一请求、分词和响应协议，继续规划 GPU 后端；生产、CentOS 和 Android 集成另行验证。</p>
+<p class="small">文档维护：2026-11-13。前半部分保留 CPU 验收基线与后续 GPU 计划；英文 API、命令和故障说明按现有实现校准。v7 数字为保留的历史验收结果，新的可复现工具与结果另行标明。</p>
+</header>
+<aside class="note"><strong>最新状态：v7 DONE（依据用户执行报告）。</strong>29/29 测试通过；F32 和 Q8 各 8/8 固定用例、10/10 warm 重复通过。<code>"response_unknown_marker": "unknown"</code> 已生效，原始 unknown 按预期解析为业务拒识，模型输出及 parser 实现未改。<strong>完成范围为 Ubuntu 独立实验；GPU、生产、CentOS 和 Android 尚未验收。</strong>本次同步文档，没有独立重跑远端测试。</aside>
+<nav aria-label="目录"><ol>
+<li><a href="#cpu-quickstart">Start here: complete CPU experiment</a></li>
+<li><a href="#cpu-autotune">CPU auto-tuner: workflow and measured outcome</a></li>
+<li><a href="#status">当前证据与完成边界</a></li>
+<li><a href="#cpu-gpu">CPU 与 GPU 的主要差别</a></li>
+<li><a href="#cpu-plan">CPU 已完成验收与计划优化</a></li>
+<li><a href="#route">主机、工具链与 ABI</a></li>
+<li><a href="#inputs">模型、SDK 与文件校验值</a></li>
+<li><a href="#build">现有构建入口与资源限制</a></li>
+<li><a href="#protocol">V3 协议、模板与停止规则</a></li>
+<li><a href="#provider">原生 API 与生命周期</a></li>
+<li><a href="#validation">验收层次与 CLI</a></li>
+<li><a href="#failures">故障经验与证据位置</a></li>
+<li><a href="#deployment">CentOS / Android 后续边界</a></li>
+<li><a href="#references">来源与维护方式</a></li>
+</ol><p><a href="qwen3-gpu-integration-plan.html">配套：GPU 独立集成计划（草案，尚未执行）</a></p></nav>
+<section id="cpu-quickstart" lang="en">
+<h2>Start here: understand the complete CPU experiment</h2>
+<p><strong>You are reproducing an isolated Ubuntu CPU experiment, not deploying a Dialogue service.</strong> The C++ program performs model inference. Python only orchestrates the existing build, supervisor and result checks; it is not a Python model-serving backend.</p>
+<pre><code>Preparation (already completed, reuse its artifacts)
+HF checkpoint-8343 -> F32 GGUF -> Q8_0 GGUF
+Pinned llama.cpp + isolated NFC patch -> matching headers / shared libraries
+
+One bounded CPU acceptance run
+V3 BuildRequest -> seven-field JSON -> selected template -> tokenizer
+ -> resident C++ provider / CPU model -> raw synchronous callback
+ -> existing V3 parser -> fixed/reset/warm result JSON
+
+Thin workflow tool
+canonical build/tests -> selected binary provenance -> F32 acceptance
+ -> Q8 acceptance only after F32 passes -> result summary</code></pre>
+<table><thead><tr><th>Component</th><th>What to remember</th></tr></thead><tbody>
+<tr><td>Model weights</td><td>The separate F32/Q8 GGUF files contain the model. A successful conversion is not an inference pass. Reuse them; do not repeat conversion to try the launcher.</td></tr>
+<tr><td>Native SDK</td><td>Matching libllama/GGML libraries plus headers. Explicitly select <code>nfc_v6</code>; baseline remains the default in the older build runner.</td></tr>
+<tr><td>Protocol/configuration</td><td><strong>Shared business protocol: <code>nlu_10</code></strong>, through the existing <code>Nlu10Protocol</code> request builder and response parser. Preserve the seven request fields, service-default omitted thinking and selected <code>unknown</code> rejection. The v7 fixture and descriptor must agree; do not rewrite generated output.</td></tr>
+<tr><td>Mutable inference state</td><td>The existing provider owns model/context/sampler lifetime and resets independent calls. This serial experiment does not establish concurrent-session safety or production history integration.</td></tr>
+<tr><td>Result</td><td>Check structured acceptance as well as exits: six tokenizer references, eight fixed calls including A–B–A, exact callback/parser delivery and ten warm repetitions per model. An expected unknown rejection is not a domain prediction.</td></tr>
+</tbody></table>
+<p id="cpu-workflow-status"><strong>17 November 2026: full nlu_10 CPU workflow PASS.</strong> The installed launcher passed 83/83 model-free tests on Python 3.6.9. The real canonical run passed 4/4 Bazel test targets (66/66 unit tests), a fresh build/link/closure check, and F32 then Q8 acceptance. Each model passed eight fixed cases and ten warm calls, including tokenizer parity, A-B-A reset, exact raw callback/parser delivery and expected unknown rejection. Exactly 36 native generations ran, with no retries, HF calls or model-HTTP calls. Seed, source and binary provenance are retained. This completes the standalone reproduction baseline, not auto-tuning, production deployment or Android/GPU validation. See the <a href="../check/PLAN-20261113-qwen3-cpu-workflow-CHECK.md">execution check</a>.</p>
+<h3>Captured results from the completed run</h3>
+<table><thead><tr><th>Step</th><th>Actual outcome</th><th>Command elapsed</th></tr></thead><tbody>
+<tr><td>Explicit seed preparation</td><td>PASS: 6 independent verified archives, 247,841,785 bytes; original cache/provenance unchanged.</td><td>0.831 s</td></tr>
+<tr><td>Canonical test</td><td>Exit 0; 4/4 targets, 66/66 native unit tests.</td><td>23.419 s</td></tr>
+<tr><td>Fresh build</td><td>Exit 0; compile/link, selected SDK closure and current ELF/build receipt PASS.</td><td>17.958 s</td></tr>
+<tr><td>Native acceptance</td><td>Exit 0; F32 18/18 calls, then Q8 18/18 calls; all 15 structured checks per model true.</td><td>39.145 s</td></tr>
+</tbody></table>
+<p><strong>Ten warm Process samples per model:</strong> F32 min/median/max <code>1174.975 / 1183.142 / 1186.953 ms</code>; Q8 <code>629.549 / 639.370 / 659.217 ms</code>. Process includes codec/provider/parser/reset. The provider-load fields were <code>548.136 / 474.153 ms</code> (F32/Q8), affected by mmap and page cache; these are not disk-cold startup, whole-Dialogue latency, an SLO, or a Release-build performance comparison. The fixed C++11 harness remains the debug build; no automatic thread/quantization search was run.</p>
+<p><strong>Open the evidence:</strong> <a href="../../.claude/tmp/qwen3-cpu-workflow-20261113/evidence/phase3-20261117T025637Z-5be44661/accept/summary.json">acceptance summary</a>, <a href="../../.claude/tmp/qwen3-cpu-workflow-20261113/evidence/phase3-20261117T025637Z-5be44661/build/build-receipt.json">current build receipt</a>, <a href="../../.claude/tmp/qwen3-cpu-workflow-20261113/phase3-execution-20261117T025637Z-5be44661.log">exact commands and execution log</a>. The detailed report preserves full remote log locations. These paths are available in the working tree and may not accompany a standalone HTML export.</p>
+<p><strong>Protocol and scope baseline:</strong> use <code>nlu_10</code> for this experiment and as the shared business-protocol reference for follow-up experiments. The names <code>nlu_06b_v3</code>, <code>v3.json</code> and Dialogue V3 identify profile/configuration/pipeline context, not a switch to <code>nlu_11</code>. Reuse the selected factory, request builder and response parser; do not add a parallel protocol. That reproduction baseline is complete. The separately approved <a href="#cpu-autotune">bounded auto-tuner and measured outcome</a> are documented below; they do not replace the historical baseline.</p>
+<h3>The experiment directory in one minute</h3>
+<table><thead><tr><th>Directory</th><th>Role / what to preserve</th></tr></thead><tbody>
+<tr><td><code>inputs/checkpoint-8343/</code></td><td>Acquired checkpoint/tokenizer/template inputs and their provenance. Preparation has already completed; the launcher does not download or reconvert them.</td></tr>
+<tr><td><code>models/</code></td><td>The separate F32 and Q8_0 GGUF weights. These are data, not shared libraries or the executable.</td></tr>
+<tr><td><code>sdk/llama-nfc-v6/</code></td><td>Selected native headers and matching libllama/GGML libraries, including the verified NFC correction. Keep the baseline SDK separate.</td></tr>
+<tr><td><code>config/</code> and <code>fixtures/</code></td><td>Selected protocol/generation contract and fixed acceptance inputs. Keep the current v7 fixture paired with literal <code>unknown</code>; do not edit answers to force a PASS.</td></tr>
+<tr><td><code>tools/</code></td><td>Python orchestration plus existing shell build runner and resource supervisor. Actual model execution remains C++.</td></tr>
+<tr><td><code>build/harness.*/</code></td><td>Fresh private compiler/Bazel work and the resulting executable. Retain the exact work referenced by a build receipt.</td></tr>
+<tr><td><code>results/</code> and <code>logs/</code></td><td>Exclusive run outputs, provenance/acceptance JSON, archive seeds and full bounded logs. Historical results are evidence, not an automatic fallback for a failed new run.</td></tr>
+</tbody></table>
+<h3>Why a verified archive seed helps</h3>
+<p>The build runner deliberately creates fresh HOME, Bazel output, install, repository and action-cache directories for every stage. That isolates runs, but a cold run may spend its deadline downloading build dependencies before compiling any C++. The failed workflow reached exactly that boundary; it was not an inference failure.</p>
+<p>The v2 correction preserves that isolation: an explicitly prepared, immutable seed contains verified dependency archives, not compiled outputs, model weights, a JDK installation or a live shared cache. Each supervised stage independently copies those archives into its own new repository cache; Bazel still checks the hashes declared by its dependency definitions. Seeding is optional and does not select a different compiler, SDK or model. Tooling checks, explicit seed preparation and the real test/build/model acceptance sequence have passed. Seed availability alone is not a build PASS or a guarantee of no network traffic.</p>
+<p><strong>Prepared seed on this host:</strong> <code>results/cpu-seed-20261117T025245Z-980a5cc0/repository-seed.json</code>, SHA-256 <code>bf11e39744a120a5211fbd394b00fccfdbe06f70a72769ebd680d4ee6ab5db8d</code>. You may deliberately reuse that exact manifest instead of repeating the seed step below. Preserve its archive directory unchanged. See the <a href="../../.claude/tmp/qwen3-cpu-workflow-20261113/remote-logs/phase2c-seed-20261117T025245Z-980a5cc0.log">seed verification log</a>; archive integrity alone is not build or model acceptance.</p>
+<h3>Commands on the selected Ubuntu host</h3>
+<p>These are the implemented CLI forms. Host Python 3.6 installation checks and the fresh native replay are recorded separately in the current check; the presence of these instructions is not a PASS result. Each real operation creates a new directory. Do not pre-create the output directory or the native JSON files.</p>
+<pre><code>set -euo pipefail  # Stop the sequence on any failed step.
+ROOT=/home/daigd/dialogue/experiments/qwen3_native
+TOOL="$ROOT/tools/cpu_workflow.py"
+RUN="$ROOT/results/cpu-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+# Safe first look: no build, model loading, preparation or child execution.
+/usr/bin/python3 -I "$TOOL" --help
+/usr/bin/python3 -I "$TOOL" accept --root "$ROOT" --sdk nfc_v6 --dry-run
+
+# Explicit archive preparation from the verified retained successful build.
+# These source paths were verified on this host; do not guess a different cache.
+/usr/bin/python3 -I "$TOOL" seed --root "$ROOT" \
+  --seed-source-cache "$ROOT/build/harness.EPbodi/repository-cache" \
+  --seed-provenance "$ROOT/logs/harness-1bcptrgp.log" \
+  --output "$RUN-seed"
+SEED="$RUN-seed/repository-seed.json"
+
+# Compile/run existing no-generation tests through the canonical controller.
+/usr/bin/python3 -I "$TOOL" test --root "$ROOT" --sdk nfc_v6 \
+  --repository-seed "$SEED" --output "$RUN-test"
+
+# Obtain a current binary receipt; test alone does not create it.
+/usr/bin/python3 -I "$TOOL" build --root "$ROOT" --sdk nfc_v6 \
+  --repository-seed "$SEED" --output "$RUN-build"
+
+# MODEL WORKLOAD: only for a selected, authorized acceptance run.
+# One native process per model: 8 fixed + 10 resident warm generations each.
+/usr/bin/python3 -I "$TOOL" accept --root "$ROOT" --sdk nfc_v6 \
+  --build-receipt "$RUN-build/build-receipt.json" --output "$RUN-accept"</code></pre>
+<p><strong>Seed lifecycle:</strong> <code>seed</code> is explicit archive copying, not model preparation. Check its <code>summary.json</code> and sealed <code>repository-seed.json</code> before use; a valid completed seed may be deliberately reused by supplying its exact manifest path. Each test/build still creates a separate private cache and records <code>repository-seed-install.json</code> in its emitted work directory. The internal <code>seed-install</code> operation is called by the harness, not another manual setup step. Without <code>--repository-seed</code>, the launcher clears inherited seed selection and retains the cold no-seed path. Never edit a completed seed, use a partial output, or choose a cache by filename alone. Missing source provenance is a reason to stop, not to download or copy arbitrary archives.</p>
+<p><strong>Read the result, not just the last shell line.</strong> Each operation prints <code>SUMMARY=...</code>. For acceptance, inspect <code>summary.json</code>: <code>status=PASS</code>, both model statuses PASS, all <code>models.&lt;label&gt;.checks</code> true, <code>actual_native_generations=36</code>, and <code>hf_calls=0</code>. Native evidence is <code>F32.json</code>/<code>Q8.json</code>; per-model checks are <code>F32-acceptance.json</code>/<code>Q8-acceptance.json</code>. If F32 fails, Q8 is UNRUN. Missing or malformed native evidence leaves actual calls unknown, not falsely zero. No automatic retry is performed.</p>
+<p><strong>Provenance:</strong> the build operation captures the actual canonical harness work/ELF record and current source stamp, then writes <code>build-receipt.json</code>. The source stamp records HEAD, scoped tracked status and exact identities of modified regular CU files. Completed working-tree edits do not require an implicit commit or cleanup; unresolved merges and source changes during the build or before acceptance still fail. Shared-library <code>nlu_11</code> inputs may appear in source provenance without changing the selected <code>nlu_10</code> runtime protocol. Acceptance verifies it, selected model/SDK/resource hashes and four-library closure. The native JSON's old hard-coded <code>source_revision</code> is a historical tag, not the current build identity. There is no new JSON-receipt API in the pipeline, no stable <code>bazel-bin</code> assumption, and no silent fallback to an old executable.</p>
+<p><strong>Limits:</strong> four CPU threads, serial F32 then Q8, context4096/output128, native invocation120s with kill-after5s, supervisor1200s, build1800s; log32MiB, action-disk24GiB and free reserve10GiB. Existing <code>build/harness.*</code> directories are supervised work/build artifacts, not model/config edits. Keep them while their binary receipts are needed. No system packages, conversion, SDK rebuild, service operation or deployment occurs.</p>
+<p><strong>Failure/rollback:</strong> wrapper exit0 means structured workflow PASS; exit4 means execution, input/resource or acceptance failure; argparse misuse exits2. Native and supervisor exits remain separately recorded. Preserve the printed full log and failed JSON; correct only the owning input/tool boundary and choose fresh output paths. Never rewrite model output, relax fixtures, remove old logs, or run Q8 after failed F32. Existing models/SDK/config remain unchanged; removing a retained build directory invalidates receipts pointing into it. This launcher runs the fixed acceptance suite, not an arbitrary-query console.</p>
+<p><strong>Need the full background?</strong> Open the <a href="qwen3-checkpoint-8343-native-integration-report.md">English integration report</a>: <a href="qwen3-checkpoint-8343-native-integration-report.md#chapter-2">vocabulary</a>, <a href="qwen3-checkpoint-8343-native-integration-report.md#chapter-7">preparation and provenance</a>, <a href="qwen3-checkpoint-8343-native-integration-report.md#chapter-8">failures and fixes</a>, <a href="qwen3-checkpoint-8343-native-integration-report.md#chapter-11">bounded reproduction</a>. Preparation is separate and explicit, never an implicit side effect of help, dry-run or CPU acceptance.</p>
+</section>
+
+<section id="cpu-autotune" lang="en">
+<h2>CPU auto-tuner: one F32 source, a small quality gate, an honest recommendation</h2>
+<p><strong>18 November 2026 — implemented and exercised; no configuration selected.</strong> The tuner generated Q5_K_M and Q4_K_M, collected the HTTP reference and ran all16 frozen F32 cases. One F32 output violated the unchanged <code>nlu_10</code> contract. It wrote <code>status=invalid-reference</code>, <code>selected=null</code> and explicitly skipped all six quantized configurations. This is a fail-closed result, not a successful speed/quality recommendation. See the <a href="../check/PLAN-20261117-qwen3-nlu10-pilot-CHECK.md">approved v2 execution check</a>.</p>
+<pre><code>Retained checkpoint-8343 F32 → direct quantization → Q5_K_M / Q4_K_M
+Retained Q8_0 ──────────────────────────────────────────┘
+16 frozen instances + isolated multi-intent config
+  ├─ HTTP once: 2 single + 2 multi-intent + 12 multi-turn
+  └─ native: F32 / 4-thread reference
+       ├─ invalid → record why; skip candidates; no selection
+       └─ valid → Q8/Q5/Q4 × 2/4 threads, serially
+                    → quality gate → median Process latency / file bytes / ID
+                    → provisional recommendation (F32 fallback included)</code></pre>
+<h3>Fixed inputs and selection rules</h3>
+<p>Seven configurations: F32/four threads, plus Q8_0, Q5_K_M and Q4_K_M each at two/four threads. All use the real <code>Nlu10Protocol</code> builder/parser and native offline binding. Context4096, batch512, microbatch128, one sequence, seed0 and generation settings stay fixed: temperature0.01, top-k1, top-p0.95, output128, non-streaming. Generation and batch threads both use the selected value. A config copy enables multi-intent output; original resources are unchanged.</p>
+<p><strong>16 instances total, reused across configurations:</strong> gold-file physical lines1 and8 as independent single queries, probe-file lines1–2, and complete gold groups at lines1–6 and8–13 as12 turns. Fourteen instances have gold labels; the two probes do not. Duplicate query text across tracks/turns is intentional. Single inputs contain only the query column, not labeled TSV. Provenance distinguishes original full-source identities from transferred prefixes.</p>
+<p>Eligibility protects every F32-correct gold case, total correctness and operational/parser/rejection outcomes. Both probes must retain parsed F32 semantics, including frame order and slot multiplicity. Complete eligible configurations rank by median synchronous native <code>Process</code> time, then model-file bytes, then configuration ID. Invalid/incomplete F32 is not replaced with a guessed baseline or quantized winner. One pass over16 instances is a provisional sample gate, not population accuracy or statistical latency confidence.</p>
+<h3>Measured artifacts and outcome</h3>
+<table><thead><tr><th>Model</th><th>File bytes</th><th>Native outcome</th><th>Qualified median</th></tr></thead><tbody>
+<tr><td>F32 / 4 threads</td><td>2,390,151,008</td><td>16 completed generations:14 success,1 parse failure,1 business rejection; invalid reference</td><td>Unavailable</td></tr>
+<tr><td>Retained Q8_0 / 2 and4 threads</td><td>639,446,880</td><td>Both skipped: invalid-reference</td><td>Not measured</td></tr>
+<tr><td>New Q5_K_M / 2 and4 threads</td><td>444,414,816</td><td>Both skipped: invalid-reference</td><td>Not measured</td></tr>
+<tr><td>New Q4_K_M / 2 and4 threads</td><td>396,704,608</td><td>Both skipped: invalid-reference</td><td>Not measured</td></tr>
+</tbody></table>
+<p><strong>Actual failure:</strong> <code>multiturn-2-turn5</code>, original gold-file line12, query <code>探路去</code>, frozen native history <code>[]</code>. Raw output was <code>navigation&lt;TAB&gt;explore_way&lt;TAB&gt;destination=</code>. Provider success, decode status0, one callback and EOG completion were observed; the consumer then rejected <code>content_schema / empty_slot_value</code>. The case took817950µs within <code>Process</code>, not an aggregate median. No timeout/resource failure caused rejection. The incomplete-reference assessment placeholder must not be reported as0/14 native accuracy.</p>
+<p><strong>Actual calls:</strong> HTTP16/16 POSTs, no skips; native16/112 maximum attempts, all16 generations completed. HTTP captures contained11 semantic,2 multi-intent and3 rejected outcomes: gold agreement8/14 plus two unannotated probes. Q8/Q5/Q4 native attempts were0. No warmups, automatic retries or baseline ABA replay. Quantizer build exited0 in100.821s; direct-F32 Q5/Q4 quantization exited0 in22.636s/24.386s. Fresh native build exited0 in28.0s. <code>evaluate</code> exited0 after recording F32 child exit4/skips; <code>select</code> exited4 after saving invalid-reference. Stage exit0 is not gold correctness.</p>
+<h3>Read the saved result without inference</h3>
+<pre><code>ROOT=/home/daigd/dialogue/experiments/qwen3_native
+PY="$ROOT/sdk/prerequisites/conda-convert/bin/python"
+RESULT="$ROOT/results/nlu10-pilot-20261118T042729114655Z"
+
+# Read-only: no build, model load or HTTP call.
+"$PY" -I - "$RESULT/recommendation.json" &lt;&lt;'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    result = json.load(source)
+print("status:", result["status"])
+print("selected:", result["selected"])
+PY</code></pre>
+<p>Saved evidence includes <code>measured-report.json</code>, <code>recommendation.json</code>, <code>inputs.json</code>, <code>corpus.json</code>, <code>retained-roots.json</code>, <code>native-build/build-receipt.json</code>, <code>F32-t4-native.json</code>, assessments/skipped reasons, HTTP captures, quantizer/model receipts and exact <code>*-command.json</code> argv. New weights are <code>Q5_K_M.gguf</code> and <code>Q4_K_M.gguf</code> in that run. Primary native log: <code>$ROOT/logs/harness-5ieuhnu1.log</code>. The check record indexes bounded logs and first-cause proof. Completed outputs are immutable: do not rerun stages into this run.</p>
+<h3>Reusable sequence for a future authorized run</h3>
+<p><strong>This block starts new work; it was not rerun for this walkthrough.</strong> The saved HTTP budget is consumed. A new run needs its own selected scope/workload authorization. Help/dry-run are safe entry points. Reuse verified models, SDK and seed; do not reconvert or repeat the old36-generation acceptance.</p>
+<pre><code>set -euo pipefail
+ROOT=/home/daigd/dialogue/experiments/qwen3_native
+PY="$ROOT/sdk/prerequisites/conda-convert/bin/python"
+TOOL="$ROOT/tools/cpu_tune.py"
+"$PY" -I "$TOOL" --help
+"$PY" -I "$TOOL" run --root "$ROOT" --dry-run
+
+# Future authorized execution only; prepare creates the exclusive directory.
+RUN="$ROOT/results/nlu10-pilot-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+CORPUS="$ROOT/build/tune-inputs-20261117T052233Z/experiment_test"
+CLIENTS="$ROOT/build/http-client-validation-final-20261117T052233Z/experiment_test"
+SEED="$ROOT/results/cpu-seed-20261117T025245Z-980a5cc0/repository-seed.json"
+COMMON=(--root "$ROOT" --run-dir "$RUN" --python "$PY")
+"$PY" -I "$TOOL" prepare "${COMMON[@]}" --corpus-root "$CORPUS"
+
+# Build-only recovery: BEFORE build, freeze the complete exact retained task
+# selection using init-retained, repeating --retained-root for every selected
+# prior run/work/recovery directory. Do not guess or omit roots. A selected
+# prior RUN carries its recorded roots and receipt workspace forward.
+# Initialization is exclusive; it never rewrites attempt/receipt evidence.
+
+"$PY" -I "$TOOL" build "${COMMON[@]}" --repository-seed "$SEED" \
+  --controller /home/daigd/cu-dev-pipeline-v17-dialogue-workspaces.sh
+"$PY" -I "$TOOL" quantize "${COMMON[@]}" \
+  --source "$ROOT/third_party_src/llama-3bb63cb-nfc-v6"
+"$PY" -I "$TOOL" http "${COMMON[@]}" --clients-root "$CLIENTS" \
+  --single-url http://10.1.122.21:9539/zp/update \
+  --multiturn-url http://10.1.122.21:9536/zp/update
+"$PY" -I "$TOOL" evaluate "${COMMON[@]}"
+"$PY" -I "$TOOL" select "${COMMON[@]}"  # Exit4 can mean saved no-selection.
+</code></pre>
+<p>The single-query client takes one input file, not a <code>*.txt</code> multi-file interface. HTTP uses workers4 for independent single/probe sessions, workers2 across multi-turn groups and sequential turns within each group. It passes <code>--no-redirects --no-workbook --capture-jsonl</code> and stops later turns after a transport/envelope failure. Workbook output remains optional/unverified because openpyxl was unavailable; no package was installed.</p>
+<h3>Evidence, boundaries and next decision</h3>
+<ul>
+<li><strong>Build:</strong> actual source revision <code>ac8b0420d82b5f3b60c536a9e63b5f74429ee0ab</code> plus17 exact source/header inputs, receipt/ELF/SDK identities. Harness C++11/effective <code>-O3</code>, no <code>-O0</code>; quantizer GCC8/C++17 Release/<code>-O3 -DNDEBUG</code> is the existing standalone-tool exception, not a product upgrade. Focused host checks passed20/20 on experiment Python and Python3.6.9, including actual symlink rejection. Tuner changes require honest refreshed provenance, never edited receipts or fallback executables.</li>
+<li><strong>Comparison:</strong> existing monotonic microseconds cover synchronous <code>Process</code>, including codec/provider/parser/reset, not isolated prefill/decode. HTTP is full Dialogue; ports do not prove identical loaded model/protocol. Native previous-eligible-gold histories differ from HTTP previous-response histories and do not prove production persistence. Differences are outcome context, not established quantization regression or native speedup.</li>
+<li><strong>Limits:</strong> build/quantizer/each quantization1200s; native configuration120s, HTTP operation300s, foreground timeout/kill-after5s; helper1200s and emergency guards1260/180/360s respectively, not extra operation time. Max four threads, quantizer buffer1024MiB, log32MiB/command, combined task8GiB sampled allocated disk, stricter10GiB free reserve and per-process8GiB address-space cap. Final sampled allocation3,376,209,920bytes/free104,236,019,712bytes. These are not a hard filesystem quota or aggregate/peak RSS; peak RSS was not measured. Existing helper owns cleanup. The executor additionally sampled retained logs/staging and earlier operation workspaces; that temporary observer is not a delivered tuner API.</li>
+<li><strong>Next decision:</strong> inspect the saved producer-side empty-slot result and actual prompt/history against unchanged <code>nlu_10</code> before authorizing a corrective experiment. Do not drop the failing case, allow empty slots, alter histories, rerun HTTP or spend unused native attempts merely to force a winner. No production selection/deployment, service change, Android/GPU validation or broad accuracy claim follows.</li>
+</ul>
+</section>
+
+<section id="status">
+<h2>1. 当前证据：Ubuntu CPU 独立验收已完成</h2>
+<p>以下为保留的 v6/v7 实验记录：v7 DONE，29 项测试与 F32/Q8 有限用例通过；不把它们冒充本次重跑。<a href="qwen3-checkpoint-8343-native-integration-report.md">12 章英文详细报告</a>及其证据索引现可直接打开；<a href="../check/PLAN-20261022-qwen3-native-deployment-CHECK.md">原始执行记录</a>保存完整命令、结果和修正。2026-11-13 已通过严格 SSH 校验读取当前权威实现；这一步只是源码/资源选择校准，不是模型推理验收。</p>
+<div class="table-wrap"><table><thead><tr><th>项目</th><th>当前结果</th><th>结论边界</th></tr></thead><tbody>
+<tr><td>模型与转换</td><td class="pass">已报告通过：checkpoint-8343 → F32 / Q8_0 GGUF</td><td>最终 checkpoint 不是经评测选出的最佳 checkpoint；文件转换成功不等于推理或质量通过。</td></tr>
+<tr><td>Ubuntu SDK / harness</td><td class="pass">SDK：GCC/G++ 8 + C++17；harness：C++11。构建、链接、依赖闭包、实际候选库映射通过；v7 共 29/29 测试通过。</td><td>不代表 CentOS7 / GCC 4.9.3 或 Android 可直接运行。</td></tr>
+<tr><td>模板与 NFC</td><td class="pass">六例最终字节与 token 对齐；重音探针 77 → 76，匹配 HF 全部 ID，其他五例不变。</td><td>NFC 只在候选 SDK 的 Qwen2/BPE 路径、已有标志开启时应用。业务请求/history 原字节保持不变。</td></tr>
+<tr><td>扩展分词回归</td><td class="pass">156 个兼容 HF ID 对照、168 个 decode 对照、84 个 normalization-OFF 对照通过。</td><td>另有 12 个原有、未使用的 parse_special=false FIM 差异被明确排除；不能计为 HF 全部通过。</td></tr>
+<tr><td>同 checkpoint 推理对照</td><td class="pass">4 次配对、3 个不同输入（包含 A–B–A）：prompt、输入 ID、生成 ID、原始文本一致；A–B–A reset 通过。</td><td>小规模受控对照，不等于完整线上服务等价、全量准确率或并发安全。</td></tr>
+<tr><td>完整 F32 固定调用</td><td class="pass">v7：8/8 通过。</td><td>旧 v6 的 7/8、exit 4 保留为历史证据；当前通过来自 marker 修正后的真实重跑。固定用例通过率不是总体模型准确率。</td></tr>
+<tr><td>拒识 marker 修正</td><td class="pass">unknown 已按预期解析为业务拒识。</td><td>未改模型输出或 parser 实现；继续保持选中配置、拒识语义和既有 history 准入规则。</td></tr>
+<tr><td>Q8 固定调用</td><td class="pass">v7：8/8 通过。</td><td>Q8 已完成实际推理及原固定验收；不能由有限用例推出所有输入都与 F32 相同。</td></tr>
+<tr><td>Resident warm</td><td class="pass">F32：10/10；Q8：10/10。合计 20 次通过。</td><td>后端耗时中位数分别为 1,219.14 ms / 666.13 ms；不是完整业务端到端时延或 p95 保证。</td></tr>
+<tr><td>GPU / CentOS / Android / 生产</td><td class="pending">独立计划与目标环境验证。</td><td>本次没有 GPU 构建或测试，也没有产品部署。</td></tr>
+</tbody></table></div>
+<p><strong>保留的根因记录：</strong>模板的 omitted-thinking 路径已修正；SDK 读取 NFC 标志但 BPE 未应用的缺口已在候选 SDK 修复；响应协议配置已在 v7 修正并通过验收。三个问题分别记录，不把历史协议失败重新归因到已修复的模板或 NFC 层。</p>
+<details><summary>原有架构图（保留，解释准备、独立验收和后续集成的关系）</summary><figure><pre>Offline preparation
+checkpoint-8343 → verified conversion → F32 GGUF → Q8_0 GGUF
+
+Stage 1: standalone Ubuntu validation
+existing V3 codec → offline hook → native provider → libllama / GGML
+existing V3 parser ← completed raw continuation ← resident model
+
+Later integration, separately scoped
+captured Stage-1 output → deterministic replay / mocks → Android V3 contracts
+Android-native model execution → separate NDK / ABI / runtime / device validation</pre>
+<figcaption>Architecture overview. Model weights remain separate from the shared libraries. Replay can test application contracts without claiming Android-native inference. No image or external companion bundle is required to read this guide.</figcaption></figure></details>
+</section>
+
+<section id="cpu-gpu">
+<h2>2. CPU 与 GPU：计算位置不同，业务协议应当相同</h2>
+<p><strong>推荐的第一条 GPU 路线：</strong>继续使用现有 C++ provider、llama.cpp 和 checkpoint-8343 GGUF，只为模型计算增加经验证的 GPU 后端。无需为“使用 GPU”重新训练模型，也无需重写 V3 BuildRequest / ParseResponse。</p>
+<div class="cards"><div class="card"><strong>CPU 原生</strong>模型计算在 CPU；权重、KV cache 等使用主机内存。依赖较少，便于作为已验证的比较基线。</div><div class="card"><strong>GPU 原生（建议下一步）</strong>把支持的层/算子交给 GPU，CPU 仍承担请求、模板、分词和控制工作。新增驱动、后端、设备内存和同步验证。</div><div class="card"><strong>GPU 服务（另一种部署方式）</strong>C++ 经 HTTP 调用 LMDeploy 等服务。服务可以部署在本机或远端，独立承担模型、调度和运行时；它不是原生 GPU offload 的同义词。</div></div>
+<div class="table-wrap"><table><thead><tr><th>比较维度</th><th>现有 CPU 原生</th><th>计划中的 GPU 原生</th></tr></thead><tbody>
+<tr><td>共同资产</td><td colspan="2">同一个 checkpoint、GGUF（后端支持时）、模板、NFC 修复、请求构造、响应 descriptor、语义检查与 callback。</td></tr>
+<tr><td>主要变更</td><td>CPU backend、线程与主机内存。</td><td>GPU backend 构建、设备选择、实际 offload、设备内存、计算精度和驱动依赖。</td></tr>
+<tr><td>内存</td><td>RAM：权重 + KV cache + 计算缓冲等。</td><td>独显通常有独立 VRAM；集显可能共享 RAM。实际占用包含权重、KV、缓冲及可能的主机副本。</td></tr>
+<tr><td>性能目标</td><td>测得基线后判断是否已满足单会话需求。</td><td>验证端到端延迟或吞吐是否改善。0.6B 短输出的收益取决于 prompt 长度、硬件、调度和数据传输，不能预设倍数。</td></tr>
+<tr><td>结果一致性</td><td>已有小样本 HF 精确一致证据。</td><td>输入字节与 ID 必须一致；浮点执行可能影响输出。记录生成 ID 差异，并按冻结的协议、语义与质量标准判定。</td></tr>
+<tr><td>接入工作量</td><td>v7 Ubuntu 独立验收完成；保存已验证 CPU 候选作为对照和回退基线。</td><td>复用 CPU 基线，新增后端及硬件验证。不能只改一个层数参数便宣布 GPU 集成完成。</td></tr>
+</tbody></table></div>
+<figure class="diagram-wrap"><svg class="diagram" viewBox="0 0 980 390" role="img" aria-labelledby="flow-title flow-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="flow-title">同一业务链路，两个计算后端</title><desc id="flow-desc">V3 请求经过模板和分词后，进入 CPU 或 GPU 计算，再经过相同的响应解析与 history 准入。</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#547084"/></marker></defs>
+<g fill="#edf5fb" stroke="#a9c3d5"><rect x="25" y="30" width="220" height="72" rx="9"/><rect x="330" y="30" width="320" height="72" rx="9"/><rect x="735" y="30" width="220" height="72" rx="9"/></g>
+<g font-family="system-ui,sans-serif" fill="#182b3a" text-anchor="middle"><text x="135" y="60" font-size="19">V3 BuildRequest</text><text x="135" y="84" font-size="14">七字段 JSON / 原始 history</text><text x="490" y="60" font-size="19">同一模板与 tokenizer</text><text x="490" y="84" font-size="14">omitted thinking + SDK 内 NFC</text><text x="845" y="60" font-size="19">相同输入 token IDs</text><text x="845" y="84" font-size="14">同一 checkpoint / 参数</text></g>
+<g fill="none" stroke="#547084" stroke-width="2" marker-end="url(#arrow)"><path d="M245 66 H322"/><path d="M650 66 H727"/><path d="M845 102 V134 H300 V163"/><path d="M845 102 V134 H690 V163"/></g>
+<rect x="160" y="171" width="280" height="72" rx="9" fill="#e7f3ec" stroke="#8fbca4"/><rect x="550" y="171" width="280" height="72" rx="9" fill="#fff1da" stroke="#dcb36c"/>
+<g font-family="system-ui,sans-serif" text-anchor="middle" fill="#182b3a"><text x="300" y="201" font-size="20">CPU 计算</text><text x="300" y="225" font-size="14">v7 Ubuntu 验收完成</text><text x="690" y="201" font-size="20">GPU 计算</text><text x="690" y="225" font-size="14">待选后端 / 待实测 offload</text></g>
+<g fill="none" stroke="#547084" stroke-width="2"><path d="M300 243 V276 H490"/><path d="M690 243 V276 H490"/><path d="M490 276 V301" marker-end="url(#arrow)"/></g>
+<rect x="245" y="309" width="490" height="57" rx="9" fill="#edf5fb" stroke="#a9c3d5"/><text x="490" y="344" text-anchor="middle" font-family="system-ui,sans-serif" font-size="19" fill="#182b3a">原始续写 → 同一 V3 Parser → 语义 / history 准入</text>
+</svg><figcaption>图中分支只表示模型计算位置；GPU 路线仍需 CPU。原生 CPU/GPU 与本机/远程服务是两个独立的选择维度。</figcaption></figure>
+<h3>硬件决定后端，不能把所有 GPU 都叫 CUDA</h3>
+<p>NVIDIA 通常选择 CUDA；Intel Arc / Intel 集显可评估 SYCL 或 Vulkan；AMD 可评估支持该卡的 HIP/ROCm 或 Vulkan。Android GPU 需按 SoC、驱动和可用后端另测；NPU 属于不同的加速器路线。以上是后端候选，不代表当前 pin 已在你的设备验证。<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md">上游后端说明</a>、<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/backend/SYCL.md">SYCL 说明</a>。</p>
+<p><strong>三个独立维度：</strong>CPU/GPU 决定计算设备；F32/Q8 决定权重表示；进程内/HTTP 决定接入方式。应逐项比较，避免同时换设备、量化、引擎和 prompt 后无法定位差异。</p>
+<p>配套计划详见 <a href="qwen3-gpu-integration-plan.html">GPU 独立集成计划</a>。建议先做单设备、单请求的原生 GPU 验证；如果真正目标是多会话服务吞吐，再单独评估 GPU 服务。TurboMind 的批处理机制属于服务引擎能力，不是 GPU 硬件自动赋予当前 provider 的能力。<a href="https://lmdeploy.readthedocs.io/en/latest/inference/turbomind.html">TurboMind 官方架构</a>。</p>
+</section>
+<section id="cpu-plan">
+<h2>3. CPU 验收基线：归档 v7，供 GPU 复用</h2>
+<p>原 C1–C6 收尾清单已由 v7 执行报告的结果取代。CPU 不再因旧 marker 问题保持 BLOCKED；保留 v6 失败证据，引用 v7 修正后的配置与验收结果。以下是已报告的结果和后续复用要求，不是额外要求重跑整套 CPU 工作。</p>
+<div class="table-wrap"><table><thead><tr><th>范围</th><th>v7 结果</th><th>GPU 计划如何复用</th></tr></thead><tbody>
+<tr><td>C1 · 配置修正</td><td class="pass">response_unknown_marker=unknown 已生效。</td><td>引用实际 selector/profile/descriptor 及其哈希；不改其他模型的协议，不把原始输出重写成旧 marker。</td></tr>
+<tr><td>C2 · 解析与回归</td><td class="pass">29/29 测试通过；裸 unknown 是预期业务拒识，parser 实现不变。</td><td>保留正常响应、拒识、畸形输入和 history 准入边界；GPU 候选的必要回归仍须通过。</td></tr>
+<tr><td>C3 · F32</td><td class="pass">8/8 固定用例、10/10 warm 通过。</td><td>保留已有 HF 配对、reset 和原始输出证据；GPU F32 与同一 F32 基线对照。</td></tr>
+<tr><td>C4 · Q8</td><td class="pass">8/8 固定用例、10/10 warm 通过。</td><td>Q8 CPU 作为实用性能比较基线；F32 继续作为诊断参照。</td></tr>
+<tr><td>C5 · 计时观察</td><td>后端 warm 中位数：F32 1,219.14 ms；Q8 666.13 ms。</td><td>从 v7 原始记录取得计时边界、构建模式、输入输出长度、线程和负载；条件相同时才复用性能结果。</td></tr>
+<tr><td>C6 · 文档与评审</td><td class="pass">报告称 v7 DONE；最终评审无验收关键问题；详细报告结构及 45 个链接检查通过。</td><td>参见 <a href="qwen3-checkpoint-8343-native-integration-report.md">12 章详细报告</a>与<a href="../check/PLAN-20261022-qwen3-native-deployment-CHECK.md">v7 执行记录</a>；本次工具工作单独记录，不重命名历史证据。</td></tr>
+</tbody></table></div>
+<p><strong>性能解释：</strong>报告中的 Q8 warm 后端中位数比 F32 低约 <strong>45.4%</strong>，两者耗时比约 <strong>1.83</strong>。这是各 10 个 warm 样本的观察，不能当作 QPS、稳定 p95、全业务端到端收益或对所有请求的加速保证。原始 JSON 有 <code>cold_provider_load_us</code>，但它仅表示受 mmap/page-cache 影响的 provider 元数据/context 加载，不是磁盘冷启动或整个进程启动。RAM 峰值与持出质量评估仍未验收。</p>
+<h3>这次最值得优化的计划结构</h3>
+<ol>
+<li><strong>把共享协议集中定义。</strong>输入格式、omitted-thinking、NFC、拒识 marker、multi marker、输出预算和停止规则形成一个版本化契约；CPU/GPU 计划引用同一份配置身份。</li>
+<li><strong>复用已完成证据。</strong>marker、F32、Q8 和 warm 的 v7 验收已完成，不因新增 GPU 计划重做转换或无条件重跑 CPU；只有配置、二进制、计时边界或环境变化影响比较时，补相应检查。</li>
+<li><strong>区分严格一致与质量评估。</strong>输入 bytes/IDs 要精确匹配；生成差异保留并归因；固定语义用例、持出数据质量和时延各自报告。</li>
+<li><strong>把 GPU 准备与最终结论分开。</strong>目标为用户指定的 10.1.120.40；先复用主机环境记录，缺项由执行端只读探测。正式对比保留 Q8 CPU 666.13 ms 的原始计时口径，并补同口径端到端测量。</li>
+<li><strong>避免每个普通修复都重启全项目审批。</strong>正式计划中预先写清允许的局部配置、候选构建和诊断修改，以及资源/平台/协议的真正边界；保持测试门禁。</li>
+</ol>
+</section>
+
+<section id="route">
+<h2>4. Choose one coherent build and runtime environment</h2>
+<table><thead><tr><th>Role</th><th>Responsibility</th><th>Boundary</th></tr></thead><tbody>
+<tr><td>Training server: <code>cloud-222</code></td><td>Read the selected checkpoint and tokenizer/config assets.</td><td>No training, optimizer-state loading or unrelated model search.</td></tr>
+<tr><td>Ubuntu build/test host: <code>new2_wtp184-server</code></td><td>Authoritative Dialogue source, experiment folder, canonical pipeline and standalone CPU tests.</td><td>No workstation-source overwrite or production service restart.</td></tr>
+<tr><td>Deployment host: <code>wtp184-server</code></td><td>Provenance of the selected V3 configuration.</td><td>Configuration inspection is not permission to deploy or run model requests.</td></tr>
+</tbody></table>
+<aside class="note"><strong>CPU/GPU 目标服务器：</strong>用户已指定 <code>10.1.120.40</code>。2026-09-21 的历史记录对应主机名 <code>lah-Precision-7820-Tower</code>、账户 <code>daigd</code>。现有环境资料优先复用；CPU 型号、GPU 型号/数量/显存、准确 OS/驱动/toolkit 信息在本次可检索记录中未取到，不能从主机名推断。执行端核对该 IP 与既有 SSH alias、v7 运行记录的映射，缺项只读补齐；不要求用户重新整理整套环境，也不把工作站型号当作 GPU 型号。</aside>
+<p>Use the project's pinned SSH alias/session contract. Do not substitute a raw host, different identity or weakened host-key verification after a connection failure.</p>
+<h3>Validated standalone baseline — Ubuntu only, v6 toolchain and v7 acceptance reports</h3>
+<ul>
+<li>SDK: retain the baseline and the validated NFC candidate separately; both use GCC/G++ 8 and C++17. Record the candidate actually loaded.</li>
+<li>Harness: use existing <code>/usr/bin/gcc-8</code> and <code>/usr/bin/g++-8</code>, with <code>-std=c++11</code>.</li>
+<li>Headers, startup objects, linker inputs, ELF interpreter and libc: select the native Ubuntu environment coherently. Inspect actual libstdc++/libgcc resolution.</li>
+<li>Do not carry the CentOS7 <code>--sysroot</code>, <code>-B</code>, library search paths or package runtime view into this route. Do not change production Dialogue defaults.</li>
+</ul>
+<aside class="note"><strong>Language standard ≠ runtime compatibility.</strong> A C API avoids exposing C++ types at its boundary, but does not prove GLIBC, GLIBCXX, CXXABI, CPU-instruction or loader compatibility. C++11 source may compile successfully and still fail to link a newer native SDK.</aside>
+<p>The inspected <code>~/.vscode-compat/sysroot-glibc-2.31</code> is a runtime bundle, not a complete development sysroot: it lacks headers, startup objects, libc/libm linker files and <code>libc_nonshared.a</code>. Do not copy it into the project and assume the original link will work. Do not inject glibc alone via <code>LD_LIBRARY_PATH</code>, execute <code>vscode-env.sh</code>, or patch binaries to hide a baseline mismatch.</p>
+<p>No system package installation, global library replacement or new compiler is required by this guide. Missing prerequisites are reported before a scoped acquisition decision; the old blanket <code>sudo apt-get</code> recipe is not the project route.</p>
+</section>
+<section id="inputs">
+<h2>5. Reuse the verified workspace and artifacts</h2>
+<p>Experiment root on Ubuntu: <code>/home/daigd/dialogue/experiments/qwen3_native</code>. Original checkpoint on the training server: <code>/data/nlu/jqli/llm_train_platform/output/nlu_v12_modi_qwen3_06b_full/checkpoint-8343</code>. The old checkpoint-3000 path was not present; do not silently substitute another export.</p>
+<pre><code>experiments/qwen3_native/
+  inputs/checkpoint-8343/       # selected weights, config and tokenizer/template
+  third_party_src/              # pinned llama.cpp, separate from helper scripts
+  sdk/llama/                   # original CPU SDK baseline
+  sdk/llama-nfc-v6/            # validated NFC candidate; keep baseline intact
+  sdk/prerequisites/           # isolated converter tools; NOT native runtime paths
+  models/                      # F32 and Q8_0 GGUF
+  config/selector.json         # frozen selected profile reference
+  config/conf/models/nlu/      # selected profiles.json and protocols/v3.json
+  src/  BUILD  tools/          # standalone provider/harness and bounded runners
+  fixtures/                    # reference bytes/tokens, semantics and mocks
+  build/  logs/  results/      # owned action directories, evidence and receipts</code></pre>
+<p>Preserve completed SDK/conversion/quantization artifacts; do not rerun expensive preparation merely because the consumer link changed. The runtime uses GGUF, not training pickle/optimizer/scheduler files. Compare transfer hashes and inspect actual tensor/tokenizer metadata rather than inferring compatibility from the model name.</p>
+<table><thead><tr><th>Artifact under <code>models/</code></th><th>Recorded size / metadata</th><th>SHA-256</th></tr></thead><tbody>
+<tr><td><code>nlu-v12modi-8343-F32.gguf</code></td><td>2,390,151,008 bytes; 310 F32 tensors.</td><td><code>5447c20c83f0bae0effff4ce12ed397ddfdfa3726f310faca9ced03d8aaf58ba</code></td></tr>
+<tr><td><code>nlu-v12modi-8343-Q8_0.gguf</code></td><td>639,446,880 bytes; 197 Q8_0 + 113 F32 tensors.</td><td><code>095f90d83d7bdd4a606822f0c0bed909ff0f04de460d8068774f8df581f0db15</code></td></tr>
+</tbody></table>
+<p>Both artifacts retain matching tensor shapes, tokenizer and template metadata. After the marker correction, the v7 report records 8/8 fixed calls and 10/10 warm repetitions passing for each of F32 and Q8. The earlier controlled F32/HF comparisons remain diagnostic evidence. Q5_K_M and Q4_K_M are outside this plan.</p>
+<p><strong>NFC candidate identity from the v6 report:</strong> <code>sdk/llama-nfc-v6/lib/libllama.so.0.7.0</code>, SHA-256 <code>ff961ef94ab277c57acf03e717651418fd9e329e96663a7ecb169a98ff3db882</code>. SDK patch: <code>results/nfc-v6-build/applied.patch</code>. The base commit alone no longer identifies the candidate: retain the patch and binary identity too. The reported public headers, 255 exported llama_* symbol names and four SONAMEs were preserved; that is supporting evidence, not universal ABI certification.</p>
+<h3>Converter and native toolchains are separate</h3>
+<p>The pinned converter needs newer Python/CMake than the host defaults. The successful private converter environment uses Python 3.11.17, CPU Torch 2.11.0, NumPy 2.2.6, Transformers 4.57.6, sentencepiece 0.2.1, protobuf 4.25.8 and the pinned local GGUF package. Official Torch 2.11 pip wheels examined required glibc 2.28; the host has 2.27. The verified isolated environment resolved that preparation issue without replacing system libraries.</p>
+<p>Use the recorded receipts and absolute tool paths. Do not activate this converter environment for Bazel, add its libraries to native inference, or use its private linker for the SDK/harness. Read archives with isolated interpreters and extract into fresh contained directories; never overwrite the original checkpoint or an unknown directory.</p>
+</section>
+<section id="build">
+<h2>6. Build and test through the existing canonical route</h2>
+<aside class="note">The Ubuntu-native harness switch and v6 NFC candidate have now been exercised successfully, according to the execution report. Reuse the canonical route below and the recorded candidate selection mechanism. This document does not invent a new GPU pipeline action or candidate-selection flag.</aside>
+<p>Run on the authoritative Ubuntu host. Do not source the deployment pipeline or invoke server/deploy actions for this experiment.</p>
+<p>For the complete seeded reproduction sequence, use the <a href="#cpu-quickstart">English quick-start</a>. The lower-level controller examples below intentionally omit the optional archive seed and therefore use a fresh cold repository cache; they may download declared dependencies. They are not a shortcut around the launcher's build receipt or acceptance gates.</p>
+<pre><code># Inspect the selected action without mutation.
+QWEN3_NATIVE_SDK=nfc_v6 PROJECT_DIR=/home/daigd/dialogue \
+THIRD_PARTY_DIR=/home/daigd/dialogue/third_party \
+bash /home/daigd/cu-dev-pipeline-v17-dialogue-workspaces.sh \
+  qwen3_native_test test-harness --dry-run
+
+# Existing Ubuntu-native stage; retain the recorded NFC candidate selection:
+QWEN3_NATIVE_SDK=nfc_v6 PROJECT_DIR=/home/daigd/dialogue \
+THIRD_PARTY_DIR=/home/daigd/dialogue/third_party \
+bash /home/daigd/cu-dev-pipeline-v17-dialogue-workspaces.sh \
+  qwen3_native_test test-harness
+
+# Only after the preceding stage passes:
+QWEN3_NATIVE_SDK=nfc_v6 PROJECT_DIR=/home/daigd/dialogue \
+THIRD_PARTY_DIR=/home/daigd/dialogue/third_party \
+bash /home/daigd/cu-dev-pipeline-v17-dialogue-workspaces.sh \
+  qwen3_native_test build-harness</code></pre>
+<table><thead><tr><th>Stage</th><th>Scope / acceptance</th></tr></thead><tbody>
+<tr><td><code>build-sdk</code>, <code>convert</code>, <code>quantize</code></td><td>Existing preparation stages already passed. Reuse receipts; replay only for an explicitly needed preparation check.</td></tr>
+<tr><td><code>test-harness</code></td><td>Build, dependency-check and test <code>//cu:llm_protocol_test</code>, <code>//cu:nlu_0_6b_offline_backend_test</code>, <code>//experiments/qwen3_native:provider_test</code>. Model-free tests are not inference.</td></tr>
+<tr><td><code>build-harness</code></td><td>Build the experiment's <code>qwen3_native_test</code> and <code>provider_test</code>; validate resulting ELF closure. A successful build is not a model test.</td></tr>
+</tbody></table>
+<p>Record actual compile commands, selected compiler, ELF interpreter, dependency versions and resolved paths. Retain <code>--no-allow-shlib-undefined</code>; check runtime binding as well as dependency presence. For trusted built artifacts, the existing bounded <code>ldd -r</code> closure check complements—not replaces—actual test execution. Missing symbols must not be converted into warnings.</p>
+<p>Bazel 1.2.1 imports use the unversioned <code>.so</code> aliases in <code>cc_import</code>; retain their SONAME symlinks and versioned targets in runtime data. Headers, libllama and GGML must come from the same pinned SDK. Resolve the executable from the reported build work directory; no stable <code>bazel-bin</code> link is promised.</p>
+<p><strong>Bounds:</strong> jobs/threads ≤4, sequential test admission, build ≤1800 seconds, test stage ≤1200 seconds, individual native tests ≤120 seconds, log cap 32 MiB, action budget 24 GiB and free reserve ≥10 GiB. Keep monitor failures fail-closed, retain logs, and stop only owned process groups. Never delete a lock or old work tree just to retry.</p>
+</section>
+<section id="protocol">
+<h2>7. V3 协议：把 unknown、模板和停止规则分别说明</h2>
+<p>继续复用 <code>CreateLlmProtocol</code>、<code>BuildRequest</code>、<code>ParseResponse</code>。已观察的选择链为 <code>conf/nlu_config_06b_http_offline.json</code> → profile <code>nlu_06b_v3</code> → <code>conf/models/nlu/protocols/v3.json</code>；实验选中配置位于 <code>config/</code>。实际修改时仍须按 selector 解析对应资源根，避免修改了未被加载的副本。</p>
+<pre><code>"response_unknown_marker": "unknown"</code></pre>
+<p><strong>该值已应用，v7 的 F32/Q8 重跑均通过（用户执行报告）。</strong>原 <code>flag:unknown</code> 保留在历史失败记录中。新配置只作用于选中的模型协议；不要改全局 parser 去无条件兼容所有 marker，也不要把生成文本重写成旧 marker。拒识是合法业务结果，既有拒识不准入 history 的规则不变。</p>
+<div class="table-wrap"><table><thead><tr><th>设置</th><th>当前约定</th></tr></thead><tbody>
+<tr><td>模型与采样请求</td><td><code>model=qwen3_nlu</code>；temperature=0.01、top_k=1、top_p=0.95。模型别名本身不证明权重身份。</td></tr>
+<tr><td>预算与流式</td><td>max_tokens=128；stream=false；allow_multi_intent_output=false。保持原验收配置。</td></tr>
+<tr><td>七字段请求</td><td>model、messages、temperature、top_p、top_k、max_tokens、stream。GPU 选择属于运行时初始化，不加入业务 JSON。</td></tr>
+<tr><td>messages</td><td>原 system + 原 user 两消息；history 与 query 使用现有序列化。保留 history:、query: 的尾空格和 history:None 约定。</td></tr>
+<tr><td>Thinking</td><td>请求不传 thinking / enable_thinking。native 复现服务的 omitted 路径，不强制 false，不追加空 thinking 块。已观察的四次输出没有 thinking；不推断所有输入都不会生成 thinking。</td></tr>
+<tr><td>响应</td><td>已验证拒识 marker 为 unknown；multi marker 仍为 multi:。正常响应仍按既有 domain / intent / slots 结构解析。</td></tr>
+</tbody></table></div>
+<h3>正确的模板后缀</h3>
+<p>所选模板 SHA-256：<code>a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8</code>。以下三个片段直接拼接，<code>\n</code> 表示一个 LF 字节；SYSTEM / USER 来自现有 codec：</p>
+<pre><code>"&lt;|im_start|&gt;system\n" + SYSTEM + "&lt;|im_end|&gt;\n"
+"&lt;|im_start|&gt;user\n"   + USER   + "&lt;|im_end|&gt;\n"
+"&lt;|im_start|&gt;assistant\n"</code></pre>
+<p>旧版 provider/reference 共同强制 false 的路径已成为历史证据。服务当前选中的是 <code>nlu_v10_qwen3_06b_full</code>，不是 checkpoint-8343；模板/tokenizer 哈希相同不能证明权重相同。同 checkpoint 推理对照继续使用 checkpoint-8343。</p>
+<h3>字节、NFC 与编码参数</h3>
+<table><thead><tr><th>项目</th><th>要求</th></tr></thead><tbody>
+<tr><td>TAB / LF</td><td>真实 U+0009 / U+000A；不能用字面反斜杠加字母代替。</td></tr>
+<tr><td>分隔符</td><td>沿用 ASCII ;、= 和选中响应 parser 的 : / = 规则。全角标点可以是自然语言内容，不做入口全局转换。</td></tr>
+<tr><td>NFC</td><td>候选 SDK 在 added-token partitioning 后、BPE pretokenization / byte encoding 前，只对选中 Qwen2 原始文本片段且 nfc=true 时应用。不是 NFKC，也不是请求/history 归一化。</td></tr>
+<tr><td>特殊 token</td><td>已抓取 native 调用 add_special=0、parse_special=1。服务路径使用 HF add_special_tokens=True；两个 API 参数不能直接当作同义。所选 tokenizer 的实际插入行为、完整 ID 对照作为判据。</td></tr>
+</tbody></table>
+<h3>停止 token 是独立契约项</h3>
+<p>受控 HF 对照匹配 native 观测停止集合 <code>[128247,151643,151645,151662,151663,151664]</code>；保存的 checkpoint 默认是 <code>[151645,151643]</code>。四次观察均终止于 <code>151645</code>。该证据支持已测样例对齐，尚未解决完整部署停止策略的选择。</p>
+<p>GPU 对比应复用 v7 实际有效停止规则，并从运行证据记录该规则；不要因为 checkpoint 默认不同就顺手调整已通过的基线。若后续部署需要修改停止策略，作为明确变更验证，并更新相关 CPU 对照。这个部署差异不重开已完成的 v7，也不能用受控对照宣称与现网 LMDeploy 完全等价。</p>
+</section>
+<section id="provider">
+<h2>8. Reuse the existing hook and pinned native API</h2>
+<p>The public <code>libllama.so</code> C API already supplies model execution. Do not introduce a new <code>libqwen_nlu.so</code>, HTTP service or business parser to make the standalone test work. Read the actual pinned <code>llama.h</code> and provider implementation before copying calls from newer upstream examples.</p>
+<table><thead><tr><th>Boundary</th><th>Pinned API / ownership contract — limited Ubuntu execution validated</th></tr></thead><tbody>
+<tr><td>Backend initialization</td><td>The harness owns backend initialization and final release. <code>llama_backend_init()</code> precedes model use; <code>llama_backend_free()</code> follows destruction of all users.</td></tr>
+<tr><td>Resident model</td><td><code>llama_model_load_from_file()</code>, CPU <code>n_gpu_layers=0</code>; vocabulary borrowed through <code>llama_model_get_vocab()</code>. Model outlives context and sampler. For a GPU-enabled build, verify all actual device/offload choices; a zero layer count alone is not a universal CPU-only guarantee.</td></tr>
+<tr><td>Private context</td><td><code>llama_init_from_model()</code>; initial context budget 4096, bounded threads. Reject prompt + output budget overflow; do not truncate history silently.</td></tr>
+<tr><td>Tokenization</td><td><code>llama_tokenize()</code>, verified special-token parsing and buffer sizing. Check selected vocabulary/special tokens and GGUF template against trusted acquisition inputs.</td></tr>
+<tr><td>Decode</td><td>Pinned <code>llama_batch_ext_*</code> calls and <code>llama_process(..., LLAMA_PROCESS_TYPE_DECODE, ...)</code>; explicit positions and checked status. Do not assume another revision's API.</td></tr>
+<tr><td>Sampling</td><td>Current provider chain: top-k → top-p → temperature → distribution, using request values. Seed 0 is test-local. <code>llama_sampler_sample()</code> already accepts once in this implementation; no duplicate accept call.</td></tr>
+<tr><td>Completed continuation</td><td>Stop on <code>llama_vocab_is_eog()</code>; collect pieces with <code>llama_token_to_piece()</code>. Reject empty, NUL-containing, thinking/echo or incomplete budget-limited output. Do not return a partial result as success.</td></tr>
+<tr><td>Reset / failure</td><td>Current provider releases the sampler and clears memory with <code>llama_memory_clear(..., true)</code>. A decode error discards context after batch destruction; next admitted call recreates it. Verify recovery with tests.</td></tr>
+<tr><td>Callback lifetime</td><td>Provider publishes one completed continuation through the existing synchronous <code>NluLlmInferenceHook</code>. Backend borrows the binding; callback/request context must not survive hook return. Destroy backend before provider.</td></tr>
+</tbody></table>
+<p><strong>Sampler caution:</strong> a greedy upstream example may resemble top-k=1 behavior, but it does not prove the entire selected decoding contract is implemented. The WTP184 harness must honor the existing request fields rather than substitute example defaults.</p>
+<h3>Concurrency: keep the test contract distinct from production</h3>
+<p>This standalone provider admits one call at a time and is not thread-safe. A–B–A sequential replay checks tested reset behavior, not concurrent-session safety. Dialogue V3's operating contract is one normal turn in flight <em>per session</em>; different sessions may overlap. Complete turn means required state/history update and ownership release, not first stream chunk or dispatch. Do not share one mutable native context across concurrent sessions or infer a delivery guarantee from a callback signature.</p>
+</section>
+<section id="validation">
+<h2>9. Validate in layers: tokens → model → application contracts</h2>
+<ol>
+<li><strong>Model-free tests and strict link:</strong> finish the original canonical targets before drawing any native inference conclusion.</li>
+<li><strong>Reference mode:</strong> compare all independent rendered-byte/token fixtures, including the normalization probe. A reference mismatch blocks inference acceptance.</li>
+<li><strong>F32 inference:</strong> controlled same-checkpoint comparisons passed in v6; the full 8-case F32 suite and 10 warm calls passed after the marker correction in v7. Preserve this ordering for future changed candidates.</li>
+<li><strong>Q8_0 inference:</strong> v7 reports 8/8 fixed cases and 10/10 warm calls passing. Retain the same config, cases and budgets for GPU comparison; do not adapt expectations to new output.</li>
+<li><strong>Reset/errors:</strong> preserve A–B–A and output/callback failure checks. Mocks establish behavior, not model predictions.</li>
+<li><strong>Timing:</strong> separate cold load from bounded resident warm calls; record command, result, CPU, threads, GGUF, prompt/output lengths and actual sample count.</li>
+</ol>
+<h3>Implemented CLI shape</h3>
+<p>This is the documented harness interface. The v6/v7 execution reports confirm successful build, reference and inference runs. Resolve the actual binary and candidate libraries from the build receipts, verify provenance and retain the existing bounded route. Output must be a new result file. No GPU-specific CLI option is claimed here.</p>
+<pre><code>qwen3_native_test --mode reference|inference --model GGUF
+  --template HASH_VERIFIED_CHAT_TEMPLATE
+  --reference TOKENIZER_GOLDENS_JSON
+  --normalization-probe NFC_PROBE_JSON
+  --output NEW_RESULT_JSON
+
+# Inference additionally requires:
+  --config-root ROOT --selector SELECTOR_JSON
+  --fixtures SEMANTIC_SMOKE_JSON [--warm-repetitions N]</code></pre>
+<p>The corrected service-default references are <code>fixtures/service-default-tokenizer-goldens.json</code> and <code>fixtures/service-default-tokenizer-normalization-probe.json</code>; preserve the older fixtures as historical evidence. Current accepted semantic inputs use <code>fixtures/semantic-smoke-unknown-v7.json</code>, paired with the selected <code>unknown</code> descriptor. Keep <code>fixtures/semantic-smoke.json</code> unchanged as historical evidence; it is not the current replay fixture. The template is the acquired <code>inputs/checkpoint-8343/chat_template.jinja</code>. The selected resource root is <code>config/</code>, not its nested catalog directory.</p>
+<p>CLI exits: <code>0</code> pass; <code>2</code> invalid input; <code>3</code> execution/load failure; <code>4</code> parity/acceptance failure; <code>5</code> artifact I/O failure. Preserve raw continuation, parsed result and failure reason. These exits differ from supervisor timeouts/resource failures.</p>
+<h3>What constitutes a trustworthy expected result?</h3>
+<p>The v10 document provides historical query/answer pairs, not verified checkpoint-8343 predictions. Six documented semantic cases and a history format-only case are distinguished in the fixtures; synthetic backend responses are labeled mocks. No validated checkpoint-specific semantic goldens were found in the inspected scope. Keep this limitation visible; do not present one exact-match example or parser success as broad NLU accuracy.</p>
+<p>The recorded per-suite scope is at most eight fixed calls and twenty resident warm repetitions. Do not silently expand it. The actual v7 execution reports ten warm calls per model, twenty combined. These samples provide observations, not a product p95/QPS guarantee or held-out quality evaluation. A GPU comparison matrix needs its own total run/time/resource budget; the CPU allowance is not automatically multiplied across every GPU configuration.</p>
+<h3>Later Android V3 replay — not Android-native execution</h3>
+<p>After real Stage-1 results exist, a separately scoped replay can inject captured raw continuations through the established application boundary and check parsing, history eligibility and failure handling. Preserve request/config provenance and clearly distinguish recorded responses from synthetic cases. This does not load the Linux .so on Android, verify Android tokenizer parity, or demonstrate device latency. No Android implementation is included in the current work.</p>
+</section>
+<section id="failures">
+<h2>10. Diagnose the owning failure before changing the build</h2>
+<table><thead><tr><th>Symptom</th><th>Evidence-led action</th><th>Do not do this</th></tr></thead><tbody>
+<tr><td>Undefined <code>logf/expf/powf/log2f@GLIBC_2.27</code></td><td>Confirmed original failure: SDK requires versions absent from CentOS7 libm. Inspect selected libraries/symbols; choose one coherent native development/runtime baseline.</td><td>Raise C++ standard blindly, remove strict linking, copy libc alone or treat a runtime-only bundle as a sysroot.</td></tr>
+<tr><td>Quantizer filesystem crash</td><td>Prior investigation found GCC8 std::filesystem layout mixed with a different runtime implementation. Quantizer-only configuration used compiler-matched libstdc++fs.a at the link tail; successful Q8 result is recorded.</td><td>Apply that archive everywhere without evidence, replace system libstdc++, or discard completed SDK/F32 provenance.</td></tr>
+<tr><td><code>du</code> permission error / supervisor 125</td><td>Bazel's exact empty mode-000 inaccessibleHelperDir is accounted via allocated blocks with identity checks. Other permission failures remain errors.</td><td>Disable monitoring, exclude the whole sandbox, chmod Bazel-owned sentinels or accept incomplete usage.</td></tr>
+<tr><td><code>du</code> missing numbered action directory</td><td>Confirmed lifecycle race. Only narrowly matched missing-action errors permit complete remeasurement: at most three attempts share the original deadline. Other/exhausted errors fail closed.</td><td>Ignore all exit-1 errors or accept partial stdout. Recovery is mock-tested; the last real run needed no retry.</td></tr>
+<tr><td>Supervisor 124 while Bazel is still analyzing</td><td>The current workflow first failed here: dependency provisioning used the 1200-second test-stage deadline before compilation/tests. Preserve the controller and supervisor logs. A complete declared-hash JDK archive was later verified in retained successful caches; the optional seed correction is now implemented and the seeded test/build/acceptance run passed.</td><td>Call this a failed C++ test or model prediction, reuse an old executable as a new result, raise the deadline, delete a lock, or claim that a seed guarantees an offline build.</td></tr>
+<tr><td>Compiler started, then build failed</td><td>Report object compilation, executable linking, tests and runtime closure separately; retain the first owning error and bounded full log.</td><td>Claim successful integration because compiler commands or one executable appeared.</td></tr>
+<tr><td>unknown rejected with missing_tab</td><td>Historical v6 failure: HF and native produced the same raw unknown. v7 corrected the selected marker to unknown; F32 and Q8 acceptance now pass without output rewriting or parser implementation changes.</td><td>Rewrite raw output, weaken all parsers or blame the repaired NFC layer.</td></tr>
+<tr><td>Token / semantic mismatch</td><td>Check checkpoint identity, exact bytes, special tokens, normalization probe and reference provenance before blaming quantization.</td><td>Normalize delimiters, remove a failing probe, strip thinking into success or derive expected labels from model output.</td></tr>
+<tr><td>Missing libraries / illegal instruction</td><td>Inspect interpreter, SONAME links, runtime resolution and CPU features. Native-ISA SDK is not a portable binary guarantee.</td><td>Mix SDK revisions or copy arbitrary host libraries.</td></tr>
+</tbody></table>
+<h3>Known evidence locations — retain historical failures and new receipts separately</h3>
+<p>Paths are relative to the experiment root on Ubuntu, not bundled files in this HTML directory.</p>
+<ul>
+<li><code>results/build-sdk.json</code>, <code>results/convert.json</code>, <code>results/quantize.json</code>: preparation receipts.</li>
+<li><code>logs/phase2-fs-correction-4pl2zast/</code> and <code>logs/quantize-unhw8xok.log</code>: quantizer correction and successful Q8 preparation.</li>
+<li><code>logs/child-error-ydjw1wqr.log</code>: permission error; <code>logs/child-error-_khcws85.log</code>: disappearing action directory.</li>
+<li><code>logs/harness-eh8g40zo.log</code>: historical CentOS-targeted failure, exit 1; superseded for Ubuntu by later successful runs, retained as evidence.</li>
+<li><code>logs/harness-3ezqwz9a.log</code> and <code>logs/v5-template-boundary-k75o0yac/</code>: v5 tokenizer-entry capture. GDB/supervisor exit 0, inferior exit 4; collection success was not parity success.</li>
+<li><code>results/v5-native-reference-r3-0_2d80bx/</code>: corrected-template reference before NFC repair.</li>
+<li><code>results/nfc-v6-build/applied.patch</code>: applied SDK-only NFC patch. The <a href="../../.claude/tmp/qwen3-v6-inference/evidence/implementation-v6.patch">complete 13-file patch</a> and <a href="../../.claude/tmp/qwen3-v6-inference/evidence/implementation-v6-manifest.json">identity manifest</a> are linked in the full working tree; task evidence may not accompany an exported standalone HTML.</li>
+<li>v6 paired HF and v7 full F32/Q8/warm/test results: use the <a href="qwen3-checkpoint-8343-native-integration-report.md#chapter-12">detailed evidence index</a>. Retained v7 results are under <code>results/nfc-v7-acceptance-9y4aoajb/</code>; full logs are named in that report and its linked check. Historical artifacts are not a new execution.</li>
+</ul>
+<p>For a new failure, report command, exit, acceptance consequence, a short excerpt and the full bounded log path. Child stderr is retained in bounded files, not only truncated console summaries. Preserve old logs and correct within scope; a severity label or retry count alone is not an architectural blocker.</p>
+</section>
+<section id="deployment">
+<h2>11. Package and integrate only after standalone acceptance</h2>
+<p>Do not distribute this experiment as a validated production package. A later relocatable package should retain the pinned library set and SONAME symlinks, compatible executable, model identity, selected configuration, license/provenance and tested launcher or RUNPATH policy. In-place success is not relocation acceptance.</p>
+<table><thead><tr><th>Later target</th><th>Additional proof required</th></tr></thead><tbody>
+<tr><td>Another Linux host / CentOS7</td><td>Actual GLIBC/GLIBCXX/CXXABI closure, loader, CPU ISA and product consumer compatibility. Ubuntu-linked binaries are not automatically CentOS-compatible.</td></tr>
+<tr><td>Android V3 replay</td><td>Callback/parser/history integration with labeled responses and approved test execution. This is contract testing, not model execution.</td></tr>
+<tr><td>Android native model</td><td>Separate NDK build for selected ABI/API level, bionic/libc++ closure, packaging and device model/memory/performance checks. Linux glibc .so files are not Android libraries.</td></tr>
+<tr><td>GPU backend</td><td>See the separate GPU plan. Hardware, toolkit/compiler compatibility, actual offload, memory and equivalence remain unverified. No silent CPU fallback is accepted as a GPU benchmark.</td></tr>
+<tr><td>Q5 / Q4 / production load</td><td>Separate quality/performance scope after the F32/Q8 baseline. Keep model precision and device changes attributable.</td></tr>
+</tbody></table>
+<p>Preserve previous packages/configuration and define rollback before deployment. No system-library replacement, service restart, model request or container operation is implied by a test build.</p>
+</section>
+<section id="references">
+<h2>12. Authoritative references and maintenance</h2>
+<ul>
+<li><span>Execution plan</span> (<code>../plan/PLAN-20261022-qwen3-native-deployment.md</code>; repository-relative, not bundled) and <span>check record</span> (<code>../check/PLAN-20261022-qwen3-native-deployment-CHECK.md</code>; repository-relative, not bundled): approval, actual commands, results and corrections. Historical sections remain historical.</li>
+<li><span>WTP184 workflow</span> (<code>../../.claude/workflows/wtp184-workflow.md</code>; repository-relative, not bundled): safety, ownership and execution. Documentation adds no runtime authorization.</li>
+<li><span>NLU integration reference v10</span> (<code>../dialogue_v3/NLU模型集成说明_v10.md</code>; repository-relative, not bundled): documentary prompt/semantic context; selected configuration owns exact runtime fields.</li>
+<li><a href="../dialogue_v3/One-in-Flight-per-Session-Design.md">One-in-flight-per-session operating contract</a>: caller/host sequences normal turns per session through required state/history completion; not proof of standalone concurrency support. Provider thread-safety and lifecycle constraints remain unchanged.</li>
+<li>Authoritative product source reviewed at <code>db06b066c412b0f5e7a7d043589c8012e86c96e1</code>: <code>cu/llm_protocol.*</code>, <code>cu/nlu_10_protocol.*</code>, <code>cu/nlu_llm_offline_inference.h</code>, <code>cu/nlu_llm_offline_backend.*</code>, <code>cu/BUILD</code>. Reconcile relevant drift before implementation; never overwrite authoritative source with a workstation copy.</li>
+<li><a href="https://github.com/ggml-org/llama.cpp/blob/3bb63cbcbfb62056c84fe9e521b0f3d756d29c32/include/llama.h">Pinned native C API</a>, <a href="https://github.com/ggml-org/llama.cpp/blob/3bb63cbcbfb62056c84fe9e521b0f3d756d29c32/CMakeLists.txt">SDK build configuration</a> and <a href="https://github.com/ggml-org/llama.cpp/blob/3bb63cbcbfb62056c84fe9e521b0f3d756d29c32/examples/simple/simple.cpp">upstream example</a>. Examples explain APIs; they do not replace WTP184 codec, sampling or lifecycle acceptance.</li>
+</ul>
+<p>Additional primary references: <a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md">backend builds</a>, <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/llama-bench/README.md">benchmark scopes</a>, <a href="https://lmdeploy.readthedocs.io/en/latest/llm/api_server.html">LMDeploy HTTP serving</a>. These current upstream documents explain options; implementation must still inspect the pinned source plus the NFC patch. Accessed 2026-10-27.</p>
+<p>When a stage completes, update its evidence row with the result and log reference. Never replace “unrun” with “pass” based on preparation, mocks or source review. This guide assumes no absent ZIP, PDF, fixture bundle, image or <code>run_native_check.py</code>.</p>
+</section>
+<footer><p>文档检查：HTML 结构、内部锚点与配套文件链接已通过静态检查；当前环境缺少可用浏览器，未完成浏览器视觉验证。</p>文档更新 · 2026-10-27 · 已知结果来自上传指南、此前抓取包及用户执行报告；本次未构建、未推理、未改远端配置。v7 DONE 及计时来自用户报告；GPU 目标已指定为 10.1.120.40，具体设备与后端由已有环境记录及只读探测补齐。<a href="#top">返回顶部</a></footer>
+</body>
+</html>
