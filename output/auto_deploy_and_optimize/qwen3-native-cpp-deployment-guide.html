@@ -33,6 +33,7 @@ details{border:1px solid #d7e1e8;border-radius:6px;padding:12px 16px;margin:18px
 <nav aria-label="目录"><ol>
 <li><a href="#cpu-quickstart">Start here: complete CPU experiment</a></li>
 <li><a href="#cpu-autotune">CPU auto-tuner: workflow and measured outcome</a></li>
+<li><a href="#cpu-continuation">Continuation: measured Q5/four-thread subset selection</a></li>
 <li><a href="#status">当前证据与完成边界</a></li>
 <li><a href="#cpu-gpu">CPU 与 GPU 的主要差别</a></li>
 <li><a href="#cpu-plan">CPU 已完成验收与计划优化</a></li>
@@ -134,7 +135,7 @@ SEED="$RUN-seed/repository-seed.json"
 
 <section id="cpu-autotune" lang="en">
 <h2>CPU auto-tuner: one F32 source, a small quality gate, an honest recommendation</h2>
-<p><strong>18 November 2026 — implemented and exercised; no configuration selected.</strong> The tuner generated Q5_K_M and Q4_K_M, collected the HTTP reference and ran all16 frozen F32 cases. One F32 output violated the unchanged <code>nlu_10</code> contract. It wrote <code>status=invalid-reference</code>, <code>selected=null</code> and explicitly skipped all six quantized configurations. This is a fail-closed result, not a successful speed/quality recommendation. See the <a href="../check/PLAN-20261117-qwen3-nlu10-pilot-CHECK.md">approved v2 execution check</a>.</p>
+<p><strong>Initial strict run, 18 November 2026 — no configuration selected.</strong> See the later <a href="#cpu-continuation">completed partial-reference continuation</a> for measured candidates. The tuner generated Q5_K_M and Q4_K_M, collected the HTTP reference and ran all16 frozen F32 cases. One F32 output violated the unchanged <code>nlu_10</code> contract. It wrote <code>status=invalid-reference</code>, <code>selected=null</code> and explicitly skipped all six quantized configurations. This is a fail-closed result, not a successful speed/quality recommendation. See the <a href="../check/PLAN-20261117-qwen3-nlu10-pilot-CHECK.md">approved v2 execution check</a>.</p>
 <pre><code>Retained checkpoint-8343 F32 → direct quantization → Q5_K_M / Q4_K_M
 Retained Q8_0 ──────────────────────────────────────────┘
 16 frozen instances + isolated multi-intent config
@@ -212,6 +213,44 @@ COMMON=(--root "$ROOT" --run-dir "$RUN" --python "$PY")
 <li><strong>Limits:</strong> build/quantizer/each quantization1200s; native configuration120s, HTTP operation300s, foreground timeout/kill-after5s; helper1200s and emergency guards1260/180/360s respectively, not extra operation time. Max four threads, quantizer buffer1024MiB, log32MiB/command, combined task8GiB sampled allocated disk, stricter10GiB free reserve and per-process8GiB address-space cap. Final sampled allocation3,376,209,920bytes/free104,236,019,712bytes. These are not a hard filesystem quota or aggregate/peak RSS; peak RSS was not measured. Existing helper owns cleanup. The executor additionally sampled retained logs/staging and earlier operation workspaces; that temporary observer is not a delivered tuner API.</li>
 <li><strong>Next decision:</strong> inspect the saved producer-side empty-slot result and actual prompt/history against unchanged <code>nlu_10</code> before authorizing a corrective experiment. Do not drop the failing case, allow empty slots, alter histories, rerun HTTP or spend unused native attempts merely to force a winner. No production selection/deployment, service change, Android/GPU validation or broad accuracy claim follows.</li>
 </ul>
+</section>
+
+<section id="cpu-continuation" lang="en">
+<h2>Continuation results: Q5_K_M / four threads, subset-qualified</h2>
+<p><strong>18 November 2026 — all six candidates measured.</strong> The approved continuation reused the older16-case sample and saved F32/HTTP evidence. All16 queries remained in every candidate run; only paired ranking used the15 baseline-valid IDs frozen before execution (13 gold annotations and2 probes). The original failed case was not removed from input, repaired or hidden. This follows the initial strict <a href="#cpu-autotune">invalid-reference run above</a>; its saved artifacts remain unchanged.</p>
+<table><thead><tr><th>Configuration</th><th>Same15 median Process (ms)</th><th>Correct /13 subset gold</th><th>Correct /14 total gold</th><th>Subset decision</th></tr></thead><tbody>
+<tr><td>Saved F32 /4</td><td>1322.931</td><td>6</td><td>6</td><td>Control/fallback only</td></tr>
+<tr><td>Q8_0 /2</td><td>1243.481</td><td>6</td><td>6</td><td>Eligible</td></tr>
+<tr><td>Q8_0 /4</td><td>686.457</td><td>6</td><td>6</td><td>Eligible</td></tr>
+<tr><td>Q5_K_M /2</td><td>937.413</td><td>6</td><td>6</td><td>Eligible</td></tr>
+<tr><td><strong>Q5_K_M /4</strong></td><td><strong>573.350</strong></td><td>6</td><td>6</td><td><strong>Selected, subset only</strong></td></tr>
+<tr><td>Q4_K_M /2</td><td>862.276</td><td>7</td><td>7</td><td>Excluded: probe drift/new rejection</td></tr>
+<tr><td>Q4_K_M /4</td><td>596.834</td><td>7</td><td>7</td><td>Excluded: probe drift/new rejection</td></tr>
+</tbody></table>
+<p>Q5/four threads had a56.66% lower median than saved F32 on the same15 IDs. Its model remains444,414,816bytes; that is file size, not RAM. These are one-pass measurements with a previously captured F32 control, not statistical latency proof or a controlled repeated benchmark. Q5 preserved baseline correctness; <strong>6/14 total gold correctness is still low</strong> and is not improved by this selection. No HTTP/native speedup or identical deployed model/history claim is made.</p>
+<p><strong>Why not Q4 despite7/14?</strong> Both Q4 configurations changed <code>multiintent-1-turn1</code> from three device-control frames to four unknown-intent frames, violating exact probe agreement, and changed <code>multiturn-2-turn2</code> from a navigation result to business rejection. A higher aggregate score does not erase those regressions. Q8 and Q5 preserved both probes and introduced no subset disqualifiers.</p>
+<p><strong>Unresolved case:</strong> all six candidates still emitted <code>navigation&lt;TAB&gt;explore_way&lt;TAB&gt;destination=</code> for <code>探路去</code>. All six native processes exited4 with complete16-generation accounting and the documented parse failure, not a timeout. The continuation CLI exited0 because it produced an eligible <code>partial-reference/subset-qualified</code> selection. It did not turn that failure into full16-case qualification.</p>
+<h3>Directory guide and visual maps</h3>
+<p>The <a href="qwen3-native-experiment-directory-guide.md">detailed experiment directory guide</a> explains all12 root folders, important nested families, current receipt dependencies and preservation cautions. Open either SVG to zoom; these are standalone experiment views, not production pipeline diagrams.</p>
+<figure><a href="qwen3-native-experiment-dataflow.svg"><img class="diagram" src="qwen3-native-experiment-dataflow.svg" alt="Artifact and evaluation data flow: checkpoint to quantized models, native results, separate HTTP context and subset-qualified recommendation"></a><figcaption>Data flow. HTTP context is separate from paired native ranking; all16 case outcomes remain visible.</figcaption></figure>
+<figure><a href="qwen3-native-experiment-structure.svg"><img class="diagram" src="qwen3-native-experiment-structure.svg" alt="Standalone experiment system structure: Python orchestration and existing supervisor, C++ CLI, offline backend, native provider, SDK, shared nlu_10 interfaces and separate build plane"></a><figcaption>System structure. Build relationships are not runtime stage order; native inference remains in C++.</figcaption></figure>
+<h3>Saved continuation and actual invocation</h3>
+<pre><code>ROOT=/home/daigd/dialogue/experiments/qwen3_native
+ORIGINAL="$ROOT/results/nlu10-pilot-20261118T042729114655Z"
+CONTINUATION="$ORIGINAL-continuation"
+# Read-only inspection; no additional inference.
+cat "$CONTINUATION/recommendation.json"</code></pre>
+<p><code>recommendation.json</code> is the detailed machine-readable report: all seven comparison rows, per-case absolute outcomes, frozen subset, exclusion reasons, selected configuration, actual call ledger and old/fresh build provenance. <code>inputs.json</code> freezes identities and subset before candidates. Six <code>*-native.json</code>, assessments, attempt reservations and command receipts retain full evidence. The <a href="../check/PLAN-20261118-qwen3-candidate-continuation-CHECK.md">continuation check</a> indexes logs and validation.</p>
+<p>The following is the <strong>actual historical invocation, not an instruction to rerun</strong>. The deterministic sibling is exclusive and non-resumable; all112 native and16 HTTP attempts are now consumed. Repeating it must not reset the budget.</p>
+<pre><code>PY="$ROOT/sdk/prerequisites/conda-convert/bin/python"
+"$PY" -I "$ROOT/tools/cpu_tune.py" continue \
+  --root "$ROOT" --original-run "$ORIGINAL" --run-dir "$CONTINUATION" \
+  --build-receipt "$ROOT/results/nlu10-continuation-build-20261118T061653739701Z/native-build/build-receipt.json" \
+  --retained-root /home/daigd/.cache/wtp184-qwen3-continuation-3squkop7 \
+  --python "$PY"</code></pre>
+<p>Fresh optimized build exited0 in28s; continuation exited0 in93s. All42 focused tests passed on Python3.6.9 and3.11.17 with no skips, including real symlinks. Strict17-input build checks passed: the other16 inputs and SDK contract matched the saved build, while the changed historical tuner identity remained separate. Thirty frozen original evidence pins still verified afterward. Context4096/batch512/microbatch128/sequence1/seed0 and requested2/4 generation/batch threads were confirmed.</p>
+<p><strong>Accounting:</strong>96 new native calls,112 cumulative native,16 saved HTTP,0 new HTTP,128 logical attempts; no F32 replay, quantization, warmup or retries. Existing common-deadline sampler and cleanup owner were used, with no second observer. Final attributed allocated disk4,199,317,504bytes plus536,870,912 reserved log bytes remained below8GiB; free102,824,185,856bytes exceeded10GiB. Disk sampling and per-process address-space limits are not RSS, a filesystem quota or proof of production capacity.</p>
+<p>The result is a useful <strong>provisional experiment setting</strong>, not production approval. Keep the empty-slot failure and weak absolute correctness as separate quality work. Do not silently relax the parser, rewrite history or launch more requests. No deployment, service, Android or GPU validation occurred.</p>
 </section>
 
 <section id="status">
