@@ -2,13 +2,15 @@
 <section>
 <h1>llama.cpp 评测与退化定位指南</h1>
 <p class="h2">性能评测（roofline / 时延 / 上下文窗口）与量化退化根因定位 —— 性能与部署文档之间的诊断层</p>
-<p class="small">整理日期：2026-10-27。所有 API/工具均已在本地工作区 D:\project\llama.cpp 核实存在（标注 文件:行号）。外部工具仅列 Windows 车机/服务器场景常用项。</p>
+<p class="small">原始整理：2026-10-27；Linux native 内存方案更新：2026-11-19。原有 llama.cpp API/行号来自当时本地工作区，不代表实验所选 SDK，实施前须核对固定版本的头文件、实现与链接库。新增内存章节为待实施方案，不是测量结果，也不授权安装、提权、探针挂载或模型运行。</p>
+<p><a href="#native-memory">直接阅读：Linux native 内存实测——RSS/PSS、perf、eBPF 与详细实施计划</a></p>
 
 <h2>评测工具总览矩阵</h2>
 <table>
 <tr><th>评测维度</th><th>仓内工具（优先）</th><th>外部工具（补充）</th></tr>
 <tr><td><b>吞吐 / 时延</b></td><td>llama-bench（tools\llama-bench，-p/-n/-d/-r/-o json）；batched-bench（并发批量）；tools\server\bench\bench.py（HTTP 端压测）</td><td>见 roofline 一节的硬件计数器工具</td></tr>
-<tr><td><b>资源占用</b></td><td>fit-params（tools\fit-params：按剩余内存自动适配 ctx/batch 参数）；server 的 /metrics（Prometheus 格式）；context 参数 no_perf 可关内部计时</td><td>Intel MLC / STREAM（峰值带宽）；VTune / uProf / perf / LIKWID（硬件计数器）；Nsight Systems+Compute（CUDA）</td></tr>
+<tr><td><b>进程内存容量</b></td><td>native CLI的现有结果；SDK缓冲区统计须核对API，不能代替OS驻留测量</td><td>Linux原生子进程rusage / GNU time -v（峰值RSS）；/proc/PID/status、smaps_rollup（RSS/PSS）；按需smaps分映射，见<a href="#native-memory">内存专题</a></td></tr>
+<tr><td><b>带宽 / 内存行为</b></td><td>fit-params用于容量适配，no_perf控制内部计时，均不测RSS/PSS；server /metrics仅适用实际server路径</td><td>perf看缺页/CPU行为；STREAM/MLC测带宽基线；LIKWID/VTune及按需eBPF归因；CUDA使用相应GPU工具</td></tr>
 <tr><td><b>上下文窗口</b></td><td>llama-bench -d 深度扫描；perplexity -c；/metrics 的 kv_cache_usage_ratio</td><td>自建长对话回放（qwen3-nlu-replay 夹具可扩展）</td></tr>
 <tr><td><b>量化质量退化</b></td><td>perplexity（含 --kl-divergence + --logits-file）；tools\imatrix（敏感度数据源）；llama-quantize --tensor-type 分组 A/B；gguf_dump.py / gguf_hash.py（工件核对）</td><td>任务级评测自建（NLU golden set）</td></tr>
 <tr><td><b>逐算子性能</b></td><td>ggml_backend_sched_set_eval_callback（ggml-backend.h:373，逐节点计时钩子）；copy_callback（:376，看跨后端拷贝开销）</td><td>VTune 热点函数视图</td></tr>
@@ -17,21 +19,22 @@
 </section>
 
 <section>
-<h1>一、Roofline：资源占用该怎么测</h1>
-<p class="p"><b>先定性再定量</b>：decode 阶段是 memory-bound（每 token 读全部权重一次），prefill 是 compute-bound。所以 CPU 上做 roofline 的第一目标是回答"我的 tg 速度离内存带宽极限还有多远"，而不是算 FLOPs。</p>
+<h1>一、Roofline：带宽与性能上限，不是 RSS/PSS</h1>
+<p class="p"><b>区分容量与带宽：</b>RSS/PSS回答“驻留了多少”，roofline回答“计算与数据搬运如何限制性能”。小batch decode常受权重读取带宽限制，prefill往往有更高计算强度，但须实测，不能仅凭阶段名称定性。下面的权重流量估算不是实测DRAM流量。</p>
 <h2>DIY roofline 四步法（无需硬件计数器）</h2>
 <pre># 1. 实测 token 速度（json 输出便于入库）
 llama-bench -m model-Q4_K_M.gguf -p 0 -n 128 -r 5 -t 8 -o json
 
-# 2. 算有效带宽：GB/s ~= 模型权重字节数 / tg 每秒
-#    例: Q4_K_M 0.6B 模型约 0.4 GB, tg 60 t/s -> 24 GB/s 有效带宽
+# 2. 粗估权重读取带宽：GB/s ~= 权重字节数 × decode tokens/s / 1e9
+#    例: Q4_K_M 0.6B 模型约 0.4 GB, tg 60 t/s -> 24 GB/s 估算值
 
-# 3. 测机器峰值带宽（一次即可，换机器才重测）
-#    Intel MLC / STREAM / AIDA64 均可
+# 3. 测机器持续带宽基线（同机、同配置记录测量条件）
+#    Intel MLC / STREAM / AIDA64 按平台选择
 
-# 4. 带宽利用率 = 有效 / 峰值
-#    >= 80%: 已到带宽墙, 只能降精度或减 KV
-#    < 60%: 有免费午餐, 查线程数/-t、NUMA、量化档位、热节流</pre>
+# 4. 估算值 / 同机实测持续带宽：只作调查线索
+#    权重并非每token必然从DRAM全量读取，还存在KV/激活/缓存流量
+#    不把80%/60%当通用判据；cache-misses不等于DRAM字节数
+#    Process总时长也不是纯decode时长</pre>
 <h2>要真正画 roofline 图（算术强度 = FLOPs/Byte）</h2>
 <table>
 <tr><th>平台</th><th>工具</th><th>取什么计数器</th></tr>
@@ -41,6 +44,274 @@ llama-bench -m model-Q4_K_M.gguf -p 0 -n 128 -r 5 -t 8 -o json
 <tr><td>NVIDIA GPU</td><td>Nsight Compute</td><td>每个 kernel 的 achieved vs peak；Nsight Systems 看时间线空隙</td></tr>
 </table>
 <p class="small">注意：llama.cpp 官方没有内置 roofline 工具——不要去找不存在的命令。仓内最近观测点是 llama_perf_context（include\llama.h:1680，见下节）。</p>
+</section>
+
+<section id="native-memory">
+<h1>专题：Linux native 内存实测与升级计划</h1>
+<p class="p"><b>结论：P0 先用 rusage + /proc，不先上 eBPF。</b>生命周期高水位回答峰值，RSS/PSS 快照回答驻留与共享；perf 解释缺页和 CPU 行为，eBPF 追查分配/映射来源。后两者不是 RSS/PSS 的替代品。以下是待实施方案，命令均未执行。</p>
+
+<h2>1. 范围、已有证据与不变项</h2>
+<ul>
+<li><b>CODE-CONFIRMED（留存源码快照）：</b>当前实验是 Linux x86_64 CPU、进程内 native provider、nlu_10；已有 Load/Process 用时、token 数和结构化结果，没有已交付的峰值 RSS/PSS 测量。provider 同步调用，harness 串行运行；模型常驻，调用之间清 KV，decode 失败丢弃 context。清 KV 不保证释放已分配内存，warm 也不等于 prefix-cache 命中。</li>
+<li><b>PARTIAL：</b>上述为 2026-11-18 留存快照，不是当前远端源码、选中共享库或进程的重新核验。快照中的 Load 会创建 context，故“Load 后”包含模型和 context。拆成 model-only / context-only 需要内部边界证据，不能仅凭两个 OS 数值相减命名。</li>
+<li><b>历史结果：</b>F32 / Q5_K_M 的 4 线程 Process 中位数为 1322.931 / 573.350 ms（固定 15 个 baseline-valid ID）；全 16 个 outcome 保留，Q5 为 6/14 标注正确，原 empty-slot failure 未修复。它们不是新内存测量或新主机验收。参见<a href="qwen3-native-performance-quicklook.md">quick look</a>。</li>
+<li><b>不变项：</b>固定 checkpoint、llama.cpp pin 与 NFC patch、nlu_10、模板、采样/停止、历史、解析/语义、ctx=4096、batch=512、ubatch=128、sequence=1、generation/batch threads=4。P0 不加入 prefix cache、GPU、服务、公共 hook ABI 或新采集框架。</li>
+<li><b>新主机前提：</b><a href="qwen3-native-migration-handoff.md">迁移包</a>目前只保留原始 checkpoint，没有 GGUF，还存在 materialize allowlist 和转换依赖缺口。先解决对应问题并形成新构建/工件证据；不假定旧 GGUF 哈希可逐位重建。本次文档编辑不执行这些工作。</li>
+</ul>
+
+<h2>2. 指标口径：每个数先说明“谁、何时、什么单位”</h2>
+<table>
+<tr><th>指标 / 来源</th><th>能回答什么</th><th>必须保留的限制</th></tr>
+<tr><td>生命周期峰值 RSS：Linux ru_maxrss / GNU time -v 的 Maximum resident set size</td><td>内核记账的驻留高水位；退出后仍可保留 wait/rusage 或 time 结果</td><td>Linux 按 KiB 换算（×1024）；不是 PSS，不给峰值时间/阶段，不是整棵树同时占用。单 native 子进程、无后代时口径最清楚；shell/timeout/子任务必须解释等待与后代统计。不可逐请求清零，仍受内核 RSS 记账精度影响</td></tr>
+<tr><td>VmRSS / VmHWM：/proc/PID/status</td><td>低成本当前 RSS / 高水位趋势</td><td>内核近似计数；VmHWM 也不是逐请求峰值。RssAnon/RssFile/RssShmem 辅助分类，不是 KV/权重的精确归属</td></tr>
+<tr><td>Rss / Pss：/proc/PID/smaps_rollup</td><td>更细的驻留快照；PSS 按物理页的共享映射情况分摊，减少跨进程重复归账</td><td>扫描有成本，不是瞬时原子快照；共享变化也会改变 PSS。采样最大值只能叫 sampled_peak_pss，不是精确生命周期峰值；可用性依内核与权限</td></tr>
+<tr><td>USS 近似：Private_Clean + Private_Dirty</td><td>按该定义的私有驻留页</td><td>明确字段口径；HugeTLB 不直接套普通 RSS/PSS 公式，Private_Hugetlb/Shared_Hugetlb 若存在则另报。Swap/SwapPss 不能算当前 RAM</td></tr>
+<tr><td>VmSize / RLIMIT_AS / GGUF 字节 / malloc 累计字节</td><td>虚拟映射、地址空间保护、磁盘文件、分配行为</td><td>都不是实际 RSS/PSS；8 GiB RLIMIT_AS 不是“测得用了 8 GiB”，大 mmap 不意味着已驻留</td></tr>
+<tr><td>专用 cgroup v2：memory.current / memory.peak / memory.stat</td><td>独占工作负载组可补充总记账与 anon/file/kernel 分类</td><td>不是 PSS；包含页缓存/内核等口径，peak 依内核支持。共享组不能算 native 独占结果。P0 不新建/迁移 cgroup、不重置共享 peak、不改限制；缺失标 unavailable</td></tr>
+</table>
+<p>mmap 权重的驻留 file-backed 页本身也属于页缓存，不能把“进程 RSS + 同一权重的页缓存”加成两份物理内存。首次 Load 后可能尚未触及全部权重，首次推理会增加驻留。RSS/PSS 差值只是所选边界的净变化，不能单独证明 KV、workspace 或权重的独占大小。</p>
+
+<h2>3. 工具选择：perf / eBPF 何时需要？</h2>
+<table>
+<tr><th>工具</th><th>推荐时机</th><th>交付证据 / 不能声称的结论</th></tr>
+<tr><td><b>P0：rusage + status + smaps_rollup</b></td><td>先回答“实际占多少内存”</td><td>生命周期高水位 + 时间戳驻留/PSS 趋势。同用户读取仍可能受 /proc 挂载、ptrace 检查或 LSM 限制，不自动提权</td></tr>
+<tr><td><b>P1：完整 smaps</b></td><td>驻留异常，需要定位模型文件映射还是匿名映射</td><td>按映射路径与类别汇总，核对实际 GGUF 路径；匿名页包含 allocator、KV、scratch、栈等，不能靠 [heap] 精确区分。只在少数检查点按需扫描</td></tr>
+<tr><td><b>P1：perf stat</b></td><td>解释首次触页、minor/major faults、CPU 开销</td><td>task-clock、缺页、cycles/instructions 等；major fault 不是存储字节数，minor fault 也不是新分配字节。cache-misses 不是 DRAM bytes；它不提供 RSS/PSS</td></tr>
+<tr><td><b>P2：perf record / perf mem</b></td><td>已有明确 CPU 热点或内存访问延迟问题</td><td>采样热点、硬件支持的 load/store 数据来源或延迟；记录符号、事件、权限、丢样。不是堆分配普查或容量计量器</td></tr>
+<tr><td><b>P2：eBPF uprobes / tracepoints</b></td><td>相同回收边界驻留持续增长，或怀疑分配/mmap churn，快照仍无法解释</td><td>按目标进程/调用栈追踪分配释放或成功映射解除；反映“申请/保留”，不等于驻留，也不自动证明 leak。先明确问题，再选最少探点</td></tr>
+</table>
+<p><b>建议顺序：</b>rusage 和 /proc 定量 → smaps 分类 → 必要时 perf 解释缺页/CPU → 最后用窄范围 eBPF 回溯来源。不预设“带宽瓶颈”或“泄漏”结论。</p>
+
+<h2>4. P0 采集设计：外部采样先行，阶段归因按需补点</h2>
+<ol>
+<li><b>一个采集/清理 owner：</b>复用既有 launcher/limiter。记录实际 exec 后 native PID、启动身份（/proc/PID/stat 的 starttime，须正确解析 stat 格式）、可执行文件身份和 run ID；退出/身份不符即停止读取，防 PID 复用。不扫描同名进程、不向未知 PID 发信号，不另建超时/清理 owner。</li>
+<li><b>生命周期高水位：</b>优先复用唯一回收路径的 rusage；如用 wait4，必须协调现有 Popen/poll/wait，不能两个等待者争抢 reap。不要用 Python 父进程 RUSAGE_SELF 或跨多个子进程累计的 RUSAGE_CHILDREN 冒充当前 native。GNU time -v 是可选封装，不是必须改 supervisor 的理由。</li>
+<li><b>两档采样：</b>建议 status 起始间隔 100 ms，smaps_rollup 起始间隔 1 s；只是待校准默认值，不保证捕获短峰。记录读取起止单调时间、读取耗时、成功/拒绝/退出/超限原因；不重叠扫描、不为追赶延迟积压任务。rollup 缺失时可交付 RSS 并标 PSS unavailable，不自动退成高频全 smaps。</li>
+<li><b>阶段快照：</b>目标为 before_load、after_load（含 context）、first_process_complete、last_process_complete_before_destroy；有明确资源销毁边界时再加 after_destroy_before_exit。进程退出后 /proc 已不可读，不能补造“退出后 RSS=0”。</li>
+<li><b>阶段标记不是内存探针：</b>没有可靠生命周期事件时只报进程级曲线，不按时间猜 prefill/decode。需要关联时，先在 harness 既有边界加有界标记/观察字段；仅当需要 reset 前状态才考虑 provider 内部边界。标记与外部读取不原子，保留时间窗口，不能声称阶段精确峰值。</li>
+<li><b>不改推理生命周期：</b>外部读取不持有 llama context 指针，不从采样线程访问非线程安全 SDK 对象。标记留在既有运行/调用观察记录；不加全局请求 map、跨请求累计器、公共 ABI、每 token 日志或为采样暂停业务线程。实验串行不证明整个 Dialogue server 全局串行；其他 session 的并发不能归到某个请求名下。</li>
+<li><b>终止与容量：</b>建议试点单进程最长 180 s，既有更严格限制优先，不为采集放宽。status ≤1800 次、rollup ≤180 次（边界快照另计 ≤5），每进程新增采集产物 ≤10 MiB。达上限停采并标 truncated，推理由原 owner 管理；缺测不是 0。超时/信号退出保留已有证据与状态；没有独立证据时不能把 SIGKILL 自动称为 OOM。</li>
+</ol>
+<p>完整 smaps 或同步阶段快照会扰动页表遍历和时延，初期不在生产热路径常开。标记区间对齐已有 Timeline/调用 owner（如存在），不另建计时框架；第一输出块不等于完整 Process/turn 完成。</p>
+
+<h2>5. 命令形状：单次快照与可选 GNU time</h2>
+<p>以下为未来 Linux Bash 示例，不是现有工具新增 CLI，也未执行。由既有 launcher 提供已核验 PID/参数；示例只读一次，无后台循环。实际定时、deadline、输出上限与清理由原 owner 实现。</p>
+<pre># native_pid 由当前任务 launcher 提供，不用 pgrep 猜 PID
+: "${native_pid:?launcher must supply verified native PID}"
+case "$native_pid" in ''|*[!0-9]*) printf 'invalid native PID\n' &gt;&amp;2; exit 2;; esac
+# 不替代 launcher 对 executable + starttime 的核验
+LC_ALL=C awk '/^(VmRSS|VmHWM|VmSize|RssAnon|RssFile|RssShmem|VmSwap):/' "/proc/$native_pid/status"
+# 文件不存在/无权读取：保留错误，标 unavailable，不能用 0 代替
+LC_ALL=C awk '/^(Rss|Pss|Private_Clean|Private_Dirty|Swap|SwapPss|Private_Hugetlb|Shared_Hugetlb):/' "/proc/$native_pid/smaps_rollup"
+
+# 可选 time 封装：在既有 limiter 内直接度量 native CLI
+# native_command 是既有 launcher 的命令数组，首项为核验过的可执行文件
+# run_dir 是本次任务独占的新结果目录；先确认 time 支持 -v/-o
+LC_ALL=C /usr/bin/time -v -o "$run_dir/native-time.txt" -- "${native_command[@]}"
+# 原 owner 保留 exit/signal；time PID 不等于 native PID
+# 不用 time bazel run / time python tuner / time sh -c 代替 native 口径</pre>
+<p>time 输出不是逐请求峰值，也不提供运行中 PSS。若封装影响 native 身份识别/信号转发，就选另一种已有回收路径方案，不静默叠加封装。</p>
+
+<h2>6. 结果字段与解释规则（拟新增契约，不是现有 schema）</h2>
+<pre>run identity:
+  model/artifact identity, binary/SDK/compiler/ISA, kernel, CPU, RAM,
+  mmap/mlock policy, context/batch/ubatch/threads, page-cache policy,
+  corpus/config identity, native_pid + starttime, start/end + exit/signal
+lifetime:
+  peak_rss_bytes {source, scope, status}  # Linux KiB → bytes
+samples[]:
+  t_begin_monotonic_ns, t_end_monotonic_ns, phase_or_unknown,
+  rss_bytes, pss_bytes, private_clean_bytes, private_dirty_bytes,
+  swap_bytes, swap_pss_bytes, source, status
+summary:
+  sampled_peak_rss_bytes, sampled_peak_pss_bytes,
+  sample_count, read_failures, max_read_duration_ns, truncated,
+  phase_snapshots, process_latency_existing_field, semantic_outcomes</pre>
+<ul>
+<li>复用原结果 JSON/既有主日志；高频样本如需独立文件，只在同一个 run 下存一份有界采样证据，由原结果引用，不复制原始日志。status/rollup/time 的来源与数值不可覆盖成同一个“memory”数。</li>
+<li>内核输出中 kB 按 1024 转 bytes，图表 MiB=2^20、GiB=2^30；保留原始标签。无数据用 null + reason，不用 0；计数/字节采用足够宽的整数。</li>
+<li>after_load / first / last 的 PSS 分开显示，末尾 PSS 与全程 peak RSS 不是同一时间点。多个进程独立峰值不可相加冒充同时峰值；总驻留需定义同步快照或专用组口径。</li>
+<li>容量验收考虑测量误差、余量、宿主可用 RAM 与并发模型副本数；“低于 RLIMIT_AS”不证明部署内存足够。CPU RSS/PSS 不代表 GPU VRAM 或 Android 的完整记账。</li>
+</ul>
+
+<h2>7. 详细实施阶段、owner 与试点预算</h2>
+<p>下表是后续开发/执行方案，不是本次文档编辑的授权。实施时按项目 canonical workflow 确定批准范围；无需另建常驻监控服务。安装/权限、Linux 执行与模型运行由对应 owner 在明确范围内进行。</p>
+<table>
+<tr><th>阶段</th><th>工作与 owner</th><th>交付 / 验收</th></tr>
+<tr><td>M0：输入与宿主事实</td><td>编排者收敛范围；server operator 核对目标 Linux、/proc/GNU time/perf 可用性、权限、native 身份；新主机先解决迁移/转换前提</td><td>固定 F32/Q5、源码/SDK/二进制与16-case身份，记录缺口。不安装、不改 sysctl、不 drop_caches，不在 Windows 伪装完成 Linux 测量</td></tr>
+<tr><td>M1：P0采集与接线</td><td>Python/shell tooling 现有文件 owner：在原 launcher 增加有界读取、一种峰值来源及原结果摘要；每文件仅一个 owner</td><td>离线夹具覆盖 KiB换算、缺字段、权限失败、退出/PID复用、超限、信号状态、只回收一次；受控无模型子进程检查 RSS趋势/退出证据，不产生模型调用</td></tr>
+<tr><td>M2：阶段关联（按需）</td><td>先看现有事件；不足时 dialogue dev 只在 harness 生命周期边界加标记，必要才扩到 provider</td><td>明确 Load 后含 context；不访问失效对象，不改变请求/回调/解析/清理。不需阶段结论即可先交付 M1 进程级结果，不为画图强加探针</td></tr>
+<tr><td>M3：受控Linux试点</td><td>server operator 使用原 limiter；先 Q5 单进程核验 PID、采样成本和终止；pilot 计入下述矩阵，不重复增加工作量</td><td>原生峰值 + RSS/PSS或明确缺测；完整16个outcome不因采样改变。采样开/关对照，标记开销单独解释</td></tr>
+<tr><td>M4：F32/Q5同机对比</td><td>2模型 × 2档（基础峰值记账；加/proc采样）× 每档3个新进程 × 每进程16个串行case</td><td>建议上限12进程 / 192次模型调用尝试，无额外warmup、自动重跑或HTTP；失败尝试也计预算。每进程≤180s，既有更严限制优先。首个与后续请求分列，顺序不变；3次只报描述性统计，不称p95/QPS或统计证明</td></tr>
+<tr><td>M5：仅对异常归因</td><td>server operator 收集少数 smaps/perf；仍有明确未解问题才讨论 eBPF / allocator / SDK 专项</td><td>先给异常样本、相同边界趋势与最小假设；额外进程/调用/时间/探点预算单列，不自动计入 M4。无异常不强制跑全部诊断层</td></tr>
+</table>
+<p>M4 保留正常 OS 页缓存，不做冷缓存操作；fresh process 不等于 cold storage。开/关组顺序交错，记录热状态/系统负载。可采用“Process 中位数额外开销 ≤5%”作为<b>建议工程目标</b>，不是已验证承诺；3次结果噪声大时标 inconclusive，在剩余预算内降采样或另批扩样，不擅改业务验收。超限/失败/权限不足报告具体缺口，不自动提权或无界重试。</p>
+
+<h2>8. 若需要 perf / eBPF：最小诊断边界</h2>
+<p>需要实际操作步骤？跳到<a href="#ebpf-howto">8A：eBPF How-to（环境/符号核验 → bpftrace smoke → BCC分配栈 → 解读与清理）</a>。</p>
+<p><b>perf：</b>先核对已安装工具和当前事件权限，在原 launcher 内另跑诊断组，不与正式时延组混报。不支持事件标 unavailable；不为跑通修改 perf_event_paranoid、加载模块或安装系统包。</p>
+<pre># 命令形状：native_command/run_dir 同上，额外模型调用另计预算
+perf stat -x ';' -o "$run_dir/perf-stat.csv" \
+  -e task-clock,context-switches,page-faults,minor-faults,major-faults \
+  -- "${native_command[@]}"
+# cycles,instructions,cache-misses 等硬件事件支持时再加入
+# 记录版本、事件、scope、运行/启用时间或multiplex情况与返回码
+# 结果不能填入 peak_rss_bytes/pss_bytes</pre>
+<p><b>eBPF 不是一条通用 memleak 命令就能解决本题。</b>选择 bpftrace/BCC/libbpf 前核对内核、BTF/符号、工具版本与既有权限；符号型 uprobes 未必依赖 BTF，但 ABI/实际共享库须准确。以下是候选设计，不是已存在的探针或已批准挂载：</p>
+<ul>
+<li><b>用户态 uprobes/uretprobes：</b>对实际 allocator 库 malloc/calloc/realloc/free 做成功分配与释放配对；存活表以 (process identity, pointer) 为键，entry/return 配对支持线程嵌套并有界。处理 calloc溢出、realloc失败旧块仍存活、size=0语义、地址复用；aligned_alloc/posix_memalign/自定义allocator未覆盖须明示。申请失败不算存活。</li>
+<li><b>按问题追加映射路径：</b>核实 mmap/munmap/mremap/brk syscall tracepoints 可用性，按返回结果维护区间，处理部分munmap、重映射、失败。映射不是驻留；allocator也可能mmap，不能直接相加两套字节数。页故障探点只说明fault行为，kernel kmalloc不是用户态堆普查。</li>
+<li><b>挂载时间/进程过滤：</b>中途attach不知道此前的存活分配，不能称完整 outstanding bytes；在受控工作负载前完成采集准备，或明确“仅attach后”。按native进程过滤并包含其线程，区分TGID/TID，固定运行身份；不靠名字匹配，不纳入构建/launcher/其他进程。</li>
+<li><b>有界与清理：</b>预设采样率、stack深度、map容量、时长和输出上限；记录丢事件、map满、缺符号、未配对等。到上限停止并标不完整，不靠无限map求完整性。只清理本次link/map/collector，不卸载他人探针；权限/系统配置变化遵循原安全规则。</li>
+<li><b>解释：</b>“未释放”可能是KV/graph缓存、allocator arena或合法常驻；free后RSS不降也可能是保留页。相同生命周期点/工作负载下交叉比较驻留和存活趋势，再定位栈。抽样推算须标估计，有丢失不报精确泄漏总量。</li>
+</ul>
+
+<h2 id="ebpf-howto">8A. eBPF How-to：从挂上探针到读懂分配栈</h2>
+<p><b>目标：</b>回答“选中 native 进程在这段窗口内从哪些调用栈申请内存、哪些申请尚未观察到释放”，不是直接测 RSS/PSS。先做 10 秒计数探针，再按需做 BCC 分配栈分析；不要第一步就写完整 malloc/free 配对器。下面是待在 Linux 验证的操作手册，本次未安装/运行 bpftrace、BCC 或任何探针。</p>
+
+<h3>8A.1 选择路线与运行边界</h3>
+<table>
+<tr><th>路线</th><th>用途</th><th>本节选择</th></tr>
+<tr><td>bpftrace：少量 uprobes/uretprobes</td><td>确认目标库、进程过滤、探点是否命中，统计请求分配字节与调用次数</td><td>第一步；只有固定计数器，不维护指针/调用栈表。不能输出存活字节或泄漏量</td></tr>
+<tr><td>BCC memleak：已有分配/释放与栈聚合工具</td><td>寻找“尚未观察到释放”的分配栈候选</td><td>第二步；先检查本机版本、探点覆盖与map内存成本，不默认其账本完全准确</td></tr>
+<tr><td>自写 BCC/libbpf 或业务 USDT</td><td>已有工具确实无法回答的配对/边界问题</td><td>暂不实现；先写清缺口。新依赖、allocator语义、公共ABI或生命周期变化另行定范围</td></tr>
+</table>
+<p>只跟踪原 launcher 核验过的 native PID 与启动身份，覆盖该进程的工作线程，不跟踪系统全部 malloc。只用已获准的权限；BPF/perf/uprobes 能力受内核配置、LSM、容器和工具版本影响，不能用一个“内核版本足够新”代替验证。BCC通常还依赖可用的编译环境/相应内核头；BTF不是所有用户态uprobe的硬性前提。缺工具或权限就记录缺口，不自动 sudo、安装、挂载 tracefs/bpffs、改sysctl或服务。</p>
+<p><b>建议额外预算：</b>计数试点1次，collector最长20秒；BCC试点1次，collector最长30秒、正常输出5轮。两者都附着现有、明确预算内的native运行，不自行启动模型；若需要新模型进程/调用，则单列在M5预算，不能偷偷加进M4。原launcher仍是native执行/终止owner；以下timeout仅限定本次创建的collector，若launcher已有同等collector deadline则不再叠加。输出总量由既有owner限制在每collector 10 MiB以内；不要用head截断管道却留下后台探针。</p>
+
+<h3>8A.2 核实 PID、实际 allocator 与符号</h3>
+<p>变量由既有launcher解析并记录：<code>native_pid</code>、<code>allocator_so</code>（目标实际映射的allocator ELF）、<code>run_dir</code>（本次独占结果目录）、<code>BCC_MEMLEAK</code>（已安装工具的绝对路径）。不按进程名猜PID，不把发行版常见路径当已确认事实。符号存在也不证明实际分配经过该实现：自定义allocator、静态链接、符号interposition或不同namespace都需要另核对。</p>
+<pre data-language="bash"># Linux示例；在已有任务身份/权限下进行，以下不安装任何组件
+: "${native_pid:?verified native PID required}"
+: "${allocator_so:?verified mapped allocator ELF required}"
+: "${run_dir:?exclusive existing result directory required}"
+: "${BCC_MEMLEAK:?absolute path of installed BCC memleak required}"
+case "$native_pid" in ''|*[!0-9]*) printf 'invalid PID\n' &gt;&amp;2; exit 2;; esac
+uname -srmo
+bpftrace --version
+bpftrace --info
+"$BCC_MEMLEAK" --help
+readlink -- "/proc/$native_pid/exe"
+# 只列候选映射；保留完整行，不把这个搜索当最终allocator识别
+LC_ALL=C awk '$2 ~ /x/ &amp;&amp; /libc|jemalloc|tcmalloc/ { print }' "/proc/$native_pid/maps"
+# 确认allocator_so确实对应目标映射，再检查实际导出符号
+LC_ALL=C readelf -Ws "$allocator_so" |
+  LC_ALL=C awk '$8 ~ /^(malloc|calloc|realloc|free)(@.*)?$/ { print }'</pre>
+<p>必须另外核验starttime/exec身份与采集窗口一致；目标退出/重新exec就停止。本例要求可解析的实际文件路径；若映射已删除、路径含特殊分隔符、namespace不一致或静态链接，先解决身份问题，不把主机另一份libc代入。bpftrace的uprobe描述包含冒号/通配语义，不能将不受约束的路径直接拼进程序。</p>
+<p>记录bpftrace版本和BCC包/脚本版本；下面的BCC参数在本次查阅的<a href="https://github.com/iovisor/bcc/blob/9e390e97d5f28695d809120e8cfaeb7f2fb95a31/tools/memleak.py">上游memleak.py固定源码</a>中存在，但这不是本机已安装工具的版本或运行证据。本机help/源码不符时停止照抄，按实际版本调整。</p>
+
+<h3>8A.3 先做10秒 bpftrace smoke：看见 malloc，不维护存活表</h3>
+<p>在本次受控的作者目录创建<code>malloc-smoke.bt</code>，例如本次独占的<code>run_dir</code>中；它不是模型包内自带脚本。将下面三处<code>/REPLACE/verified/libc.so.6</code>逐一替换为8A.2核验的实际ELF路径，不原样运行，也不eval拼接任意输入。<code>$1</code>是传给bpftrace脚本的PID，不是shell展开。</p>
+<pre data-language="bpftrace">uprobe:/REPLACE/verified/libc.so.6:malloc
+/pid == $1/
+{
+    @malloc_calls = count();
+    @malloc_requested_bytes = sum(arg0);
+}
+
+uretprobe:/REPLACE/verified/libc.so.6:malloc
+/pid == $1 &amp;&amp; retval == 0/
+{
+    @malloc_null_returns = count();
+}
+
+uprobe:/REPLACE/verified/libc.so.6:free
+/pid == $1 &amp;&amp; arg0 != 0/
+{
+    @nonnull_free_calls = count();
+}
+
+interval:s:10
+{
+    exit();
+}</pre>
+<p>程序只有4个无动态键的聚合map，不存每个指针/每个线程的状态；这降低map基数，但每次命中仍会触发uprobe，不能称零开销。bpftrace中<code>pid</code>为进程ID、<code>tid</code>为线程ID，因此该过滤可包含native工作线程。工具按正常退出规则打印非空map；没输出某个map不意味着已证明该事件永远不会发生。</p>
+<pre data-language="bash"># 确认已替换allocator路径，并由原launcher核验PID/starttime
+# timeout只负责collector；它不应派生或终止native工作负载
+# 原launcher已负责collector deadline时，直接使用相同bpftrace参数
+if timeout --signal=INT --kill-after=3s 20s \
+    bpftrace -p "$native_pid" "$run_dir/malloc-smoke.bt" "$native_pid" \
+    &gt;"$run_dir/bpftrace-malloc.txt" 2&gt;"$run_dir/bpftrace-malloc.stderr"; then
+  collector_status=0
+else
+  collector_status=$?
+fi
+printf 'bpftrace collector exit=%s\n' "$collector_status"</pre>
+<ul>
+<li><code>@malloc_requested_bytes</code>是观察到的malloc入口请求大小之和，包含之后可能失败/释放的请求；不是成功分配总量、当前存活量、RSS或PSS。</li>
+<li>free调用数无法与malloc调用数直接相减：free可能释放窗口之前、calloc/realloc/aligned等路径分配的对象。这里刻意不做简单“malloc次数−free次数=leak”计算。</li>
+<li>这只是动态链接allocator的探点smoke：若实际走自定义allocator或其他分配入口，0命中不能证明“没有分配”。attach前/中已有调用还可能造成入口/返回窗口不对齐。</li>
+<li>确认日志中探针确实加载，检查stderr、退出原因和丢事件警告；权限/符号/编译错误不能当0次事件。20秒deadline包括编译与挂载，超时不意味着完成10秒有效观测。</li>
+</ul>
+
+<h3>8A.4 再做BCC memleak：最多5轮分配栈候选</h3>
+<p>先检查本机源码/资源预算：参考版本的allocs map上限为1,000,000项，stack map为10,240项，且还有其他map。它们会占用collector/内核资源，<code>-T 5</code>只限制展示的栈数，并不缩小这些map。若工具默认成本不在获准预算内，不启动；不能假装“只显示5条所以开销很小”。没有完整溢出/更新失败遥测时，必须把结果记为部分候选证据。</p>
+<pre data-language="bash"># 本机help须确认 -p/-O/-o/-s/-T 与 interval/count 的含义
+# 必须有 -p：参考版本不指定PID默认跟踪kernel allocs，不是本题
+# -O指定已核验的allocator对象；-o单位ms；最后2与5为报告间隔与次数
+if timeout --signal=INT --kill-after=3s 30s \
+    "$BCC_MEMLEAK" -p "$native_pid" -O "$allocator_so" \
+    -o 1000 -s 1 -T 5 2 5 \
+    &gt;"$run_dir/bcc-memleak.txt" 2&gt;"$run_dir/bcc-memleak.stderr"; then
+  collector_status=0
+else
+  collector_status=$?
+fi
+printf 'BCC memleak collector exit=%s\n' "$collector_status"</pre>
+<table>
+<tr><th>参数</th><th>如何解释</th></tr>
+<tr><td>-p PID / -O ELF</td><td>单native进程、实际allocator对象；不能把不带-p的kernel默认模式拿来分析用户态堆</td></tr>
+<tr><td>-o 1000</td><td>普通报告只展示至少存活1000ms的已追踪分配；更年轻的分配没展示，不等于没有。延长年龄阈值是过滤，不是泄漏证明</td></tr>
+<tr><td>-s 1</td><td>不主动抽样该工具覆盖的分配，仍不保证无丢失/无盲点；成本过高先停止。若另批改为-s N则标sampled，不能把原输出自动乘N称精确总量</td></tr>
+<tr><td>-T 5 / 2 5</td><td>每轮最多5个栈，每2秒报告，5轮后正常退出。正常报告窗口约10秒，编译/挂载/打印另占时间；top-5不是全进程总字节</td></tr>
+<tr><td>本例不使用 -t / -a / --combined-only</td><td>-t逐事件输出，-a列地址，容易放大日志；参考实现combined-only走另一报告路径，没有普通报告的-o年龄过滤，不能将二者口径混用</td></tr>
+</table>
+<p><b>重要工具边界：</b>参考实现的<code>-c</code>先启动子进程再编译/挂探针，不能保证捕获启动期全部分配，因此本例不使用它。若要model-load前的完整窗口，必须另设计受控launcher就绪/启动配合，证明探针已就绪，再启动预算内工作；不能声称在运行进程上attach已补回此前账本，也不临时SIGSTOP无关进程。</p>
+<p>参考实现还存在简化：realloc入口先从旧账本删除，失败时不完整恢复；mmap/munmap不是完整的成功/区间生命周期模型；同线程同类型嵌套调用也不等于通用配对栈。因此它适合选出可调查的栈，不能当精确分配审计器。遇到这些路径占主导时，保留候选证据并收窄结论，不直接改业务或自行扩成新追踪子系统。</p>
+
+<h3>8A.5 将栈结果与RSS/PSS对齐</h3>
+<pre data-language="illustration"># 仅示意，不是本项目捕获的输出
+[time] Top 5 stacks with outstanding allocations:
+    8388608 bytes in 2 allocations from stack
+        &lt;allocator symbol + offset&gt;
+        &lt;native/SDK caller + offset&gt;</pre>
+<p>这只表示“该工具覆盖且已观察、通过年龄过滤、按该栈聚合的8 MiB请求尚未观察到释放”。它不是8 MiB物理RAM，也不保证真的泄漏；模型常驻、KV/workspace、allocator arena都可能合法保留。符号缺失时保存模块身份/偏移，不把unknown栈全部归给llama；如需带调试信息/保留frame pointer的构建，另定构建与性能比较范围，不静默替换现有二进制。</p>
+<table>
+<tr><th>交叉现象</th><th>下一步，而不是直接下结论</th></tr>
+<tr><td>候选outstanding与相同边界PSS都持续上升</td><td>优先调查该栈的持有者/回收点；先排除合法缓存、输入变化、漏事件。M4新进程对比不够证明长期趋势，另批同进程重复周期</td></tr>
+<tr><td>候选outstanding稳定，PSS上升</td><td>看文件页触及、未覆盖allocator/mmap、共享变化、allocator保留和栈/工作区；不是自动证明“eBPF漏了泄漏”</td></tr>
+<tr><td>候选outstanding下降，RSS不下降</td><td>可能free后allocator仍保留物理页、碎片或文件页仍驻留；不为测量主动malloc_trim/drop_caches改变业务行为</td></tr>
+<tr><td>栈丢失、map满、窗口太短、进程提前退出</td><td>标PARTIAL/inconclusive，保留stderr/已采样本。不能输出精确泄漏总量或无泄漏结论</td></tr>
+</table>
+<p>用既有单调时间窗口/run ID对齐/proc快照和阶段标记；BCC报告中的墙钟时间需与同次运行的时钟映射对应，不能直接当单调时间。统计包含同进程所有线程及进程级常驻对象，不能仅凭一个request ID把整段堆增长归给该请求。</p>
+
+<h3>8A.6 何时追加mmap探点或业务USDT？</h3>
+<ul>
+<li>若smaps显示增长主要在映射而非已覆盖堆路径，先用本机bpftrace的<code>-lv</code>核对所需sys_enter/sys_exit tracepoint字段，再做窄范围映射试点。要处理实际syscall返回的负errno、成功区间、部分munmap/mremap；不要将libc的MAP_FAILED语义与原始syscall返回混用，不直接照抄未核验的args字段。</li>
+<li>malloc→内部mmap会重叠计数，不能将两张表相加。kernel kmalloc探点也不表示用户态模型权重/KV字节数。</li>
+<li>若问题是“某次Process完成/reset前后是否保留对象”，优先复用harness标记；确需USDT时，只提出model_load_done/process_done/reset_done等有界事件及其实际owner，注明为拟新增点，不是当前API。是否加头文件/构建依赖另定范围；不要打印或跨线程保存裸context指针，也不要每token打点。</li>
+</ul>
+
+<h3>8A.7 收尾、常见失败与最小交付</h3>
+<ul>
+<li><b>正常结束：</b>计数脚本到10秒exit；BCC到5轮退出；原owner等待collector并记录返回码、stderr、有效挂载/观测窗口和native原状态。timeout返回124一般表示触发deadline，不是“采集通过”；被SIGKILL等强杀也不算完整收尾。</li>
+<li><b>清理：</b>标准未pin的BCC/bpftrace程序通常随collector关闭对象/链接而解除。仅核验/回收本任务collector及其明确创建的link/map；不能pkill bpftrace、删除整个bpffs或卸载他人探针。collector异常退出时由原owner做有界回收，不杀native来结束采集。</li>
+<li><b>EPERM/加载失败：</b>记录当前内核/工具错误和需要的最小能力，由获准owner处理；不自动提权、放宽LSM/perf策略。<b>找不到符号：</b>回到实际ELF/allocator/namespace核验，不替换成别的系统libc。<b>0命中：</b>确认有效观测窗口内确有预算内分配和已挂载probe，不为让图有数据追加无预算模型请求。</li>
+<li><b>最终证据：</b>目标PID/starttime与模块身份、工具版本/参数、collector资源预算、有效起止窗口、退出/丢失/覆盖缺口、最多5个候选栈、同窗口RSS/PSS、完整语义outcome和开销对照。只在实际Linux运行后标RUNTIME-CONFIRMED；本节仅完成文档与上游源码口径校准。</li>
+</ul>
+
+<h2>9. 验收与交付</h2>
+<ul>
+<li><b>口径：</b>PID/启动身份、来源、单位、生命周期/快照/采样峰值明确，缺测诚实报告；Bazel/Python/采集器不能混入native峰值。</li>
+<li><b>契约：</b>相同16个case的输出、解析/拒识/失败、顺序与调用次数不因观测改变；15-ID性能子集与全16结果同时可见。不顺便修empty-slot、改gold或换协议。</li>
+<li><b>成本：</b>报告开/关Process用时、读取成本/失败/上限与输出差异；不能把观察者扰动称为性能提升。同步快照阻塞需单列。</li>
+<li><b>结论：</b>每模型给生命周期peak RSS、after_load/first/last的PSS、sampled_peak_PSS与误差。证明长期稳定/泄漏需另设计同进程重复周期；M4的3个新进程不能证明长期无泄漏。</li>
+<li><b>单页摘要：</b>模型/线程/ctx、峰值RSS、阶段PSS、样本数/缺测、原Process统计、语义结果、采集开销、退出状态、主证据路径。只有实际测量才标 RUNTIME-CONFIRMED，本文方案/示例不是 captured runtime evidence。</li>
+</ul>
+
+<h2>10. 口径参考与源码落点</h2>
+<p>Linux语义参考（实施时核对，不表示本次已在目标机验证）：<a href="https://www.kernel.org/doc/html/latest/filesystems/proc.html">kernel /proc</a>、<a href="https://man7.org/linux/man-pages/man2/getrusage.2.html">getrusage(2)</a>、<a href="https://man7.org/linux/man-pages/man2/wait4.2.html">wait4(2)</a>、<a href="https://man7.org/linux/man-pages/man1/perf-stat.1.html">perf-stat(1)</a>、<a href="https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html">cgroup v2</a>。以实际内核/工具版本为准。</p>
+<p>留存源码根：<code>.claude/tmp/qwen3-migration-20261118/inputs/source/source/project/</code>。实验根为其下<code>experiments/qwen3_native/</code>，相关文件：<code>src/native_provider.cc</code>（Load/CreateContext、Infer/ResetCall）、<code>src/qwen3_native_test.cc</code>（RunCase/Process记录）、<code>tools/harness-limit.py</code>（子进程/超时/回收owner）、<code>tools/cpu_tune.py</code>（peak_rss_bytes原为None）。迁移包<code>recipes/portable-limit.py</code>是另一入口，按实际执行路径选择一个owner，不双层接线。当前远端源码、选中SDK与API仍需在后续实施范围内核对。</p>
 </section>
 
 <section>
@@ -120,9 +391,10 @@ python -m gguf.scripts.gguf_hash model-mixtest.gguf   # 工件指纹入库</pre>
 
 <section>
 <h1>五、集成过程中的辅助设计（要不要加？加什么？）</h1>
-<p class="p"><b>结论：要加，但分层加</b>——观测走零成本通道常开，诊断钩子按需开启，定位工具留在离线。这也符合 llama.cpp 自身"零运行时分配"的克制设计哲学。</p>
+<p class="p"><b>分路径、分层加：</b>轻量观测也须验证成本，smaps扫描、perf采样、eBPF栈采集和算子钩子按需开启，不能称零开销。native CPU与llama-server能力不能混为一谈。</p>
 <table>
 <tr><th>级别</th><th>辅助设计</th><th>实现点</th><th>成本</th></tr>
+<tr><td class="p0">P0</td><td>native峰值RSS + 有界RSS/PSS快照，不以GGUF大小代替内存</td><td>复用launcher/limiter与原结果，见<a href="#native-memory">内存专题M0–M4</a>；不加服务</td><td>rusage较低，smaps扫描须开/关对照校准</td></tr>
 <tr><td class="p0">P0</td><td>日志接管：llama_log_set 回调把内部 timing/警告转投网关日志（结构化+trace id）</td><td>llama.h:1671</td><td>近零</td></tr>
 <tr><td class="p0">P0</td><td>性能计数导出：周期采样 llama_perf_context，导出 pp/tg 延迟直方图；生产可用 no_perf 关闭</td><td>llama.h:1680</td><td>近零</td></tr>
 <tr><td class="p0">P0</td><td>走 llama-server 时：/metrics 接 Prometheus + Grafana（kv 占用/并发/请求延迟全都有）；容量规划用 bench.py 压测</td><td>server-http.cpp:61</td><td>近零</td></tr>
@@ -132,6 +404,6 @@ python -m gguf.scripts.gguf_hash model-mixtest.gguf   # 工件指纹入库</pre>
 <tr><td class="p2">P2</td><td>后端一致性巡检：ggml_backend_compare_graph_backend（ggml-backend.h:448）对比 CPU vs GPU 数值一致性，硬件适配回归用</td><td>官方 API</td><td>中</td></tr>
 <tr><td class="p2">P2</td><td>工件指纹：每次部署跑 gguf_hash.py 记录 SHA，退化先排除"模型文件悄悄变了"</td><td>gguf-py\gguf\scripts\</td><td>低</td></tr>
 </table>
-<p class="small">对应到你的 WTP184 网关：P0 三项建议直接进第一版集成；KL 回归护栏与 nlu-replay 夹具合并后，就是"模型质量门禁"的完整闭环。</p>
+<p class="small">当前native CPU优先做有界RSS/PSS实测与原结果接线；server指标仅适用llama-server。日志回调为进程全局，不能借用短寿命request指针；SDK计数须核对版本并在安全边界读取。后续实现/执行继承项目canonical workflow，不因文档建议自动开始。</p>
 </section>
 </body></html>
