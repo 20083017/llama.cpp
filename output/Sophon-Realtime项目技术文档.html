@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sophon-Realtime 项目技术文档 — 开源全双工语音模型深度拆解</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 1.75; color: #24292f; background: #ffffff; max-width: 980px; margin: 0 auto; padding: 40px 32px 80px; font-size: 15px; }
+  h1 { font-size: 26px; margin: 8px 0 4px; color: #1a1a1a; }
+  h2 { font-size: 20px; margin: 44px 0 14px; padding-bottom: 8px; border-bottom: 2px solid #e1e4e8; color: #1f3a5f; }
+  h2 .secno { color: #0969da; margin-right: 8px; font-family: Consolas, monospace; }
+  h3 { font-size: 16px; margin: 26px 0 10px; color: #1f3a5f; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0 10px 24px; }
+  li { margin: 4px 0; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 13px; background: #f0f2f5; padding: 1px 5px; border-radius: 4px; color: #b35900; }
+  pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 12px 0; font-size: 13px; line-height: 1.6; }
+  pre code { background: none; padding: 0; color: #24292f; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13.5px; }
+  th { background: #1f3a5f; color: #fff; text-align: left; padding: 8px 12px; font-weight: 500; }
+  td { border: 1px solid #d0d7de; padding: 7px 12px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6f8fa; }
+  .meta { color: #57606a; font-size: 13px; margin-bottom: 28px; }
+  .meta strong { color: #24292f; }
+  .toc { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 10px; padding: 18px 24px; margin: 20px 0; columns: 2; column-gap: 40px; }
+  .toc a { color: #0969da; text-decoration: none; display: block; margin: 3px 0; font-size: 13.5px; }
+  .toc a:hover { text-decoration: underline; }
+  .toc .toc-title { column-span: all; font-weight: 600; margin-bottom: 8px; color: #1f3a5f; font-size: 15px; }
+  .note { border-left: 4px solid #0969da; background: #f0f6ff; padding: 10px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 13.5px; }
+  .warn { border-left: 4px solid #d29922; background: #fff8e6; padding: 10px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 13.5px; }
+  .p0 { color: #cf222e; font-weight: 600; }
+  .p1 { color: #bf8700; font-weight: 600; }
+  .p2 { color: #0969da; font-weight: 600; }
+  figure { margin: 18px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: #57606a; margin-top: 6px; }
+  a { color: #0969da; }
+  .footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid #d0d7de; color: #57606a; font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<h1>Sophon-Realtime 项目技术文档</h1>
+<div class="meta">
+<strong>Sophon-Realtime（智子实时语音）</strong> — 开源全双工语音模型家族：边听边说、听得懂语气、可随时打断。<br>
+仓库：<a href="https://github.com/adventists-ai/sophon-realtime">github.com/adventists-ai/sophon-realtime</a> · 由 Adventists AI（AI 降临派）开发 · Apache-2.0（代码与权重均可商用） · Python<br>
+本文档基于仓库 README 与核心源码（<code>duplex.py</code>、<code>live/</code> 网关、<code>sophon_expressive/</code> 引擎）逐行拆解整理，整理日期 2026-11-20，数据截至 2026-11-19。
+</div>
+
+<div class="toc">
+<div class="toc-title">目录</div>
+<a href="#s1">1. 项目定位与核心概念</a>
+<a href="#s2">2. 三种 build：Tag / Flash / E2E</a>
+<a href="#s3">3. 分层架构</a>
+<a href="#s4">4. 话轮判断：DuplexJev 的具体实现</a>
+<a href="#s5">5. 打断（barge-in）机制与历史截断</a>
+<a href="#s6">6. 上下文管理</a>
+<a href="#s7">7. 打断后的三级恢复</a>
+<a href="#s8">8. 关键参数速查</a>
+<a href="#s8b">9. 协议栈与策略公式</a>
+<a href="#s9">10. 部署路径与版本演进</a>
+<a href="#s9c">11. 部署策略与配置详解</a>
+<a href="#s9b">12. 增强与微调操作指南</a>
+<a href="#s10">13. 性能与基准数据</a>
+<a href="#s11">14. 创新点总览与副语言决策机制</a>
+<a href="#s12">15. DuplexJev 架构与训练原理</a>
+<a href="#s13">16. 工程借鉴（P0/P1/P2）</a>
+<a href="#s14">17. 术语表</a>
+</div>
+
+<h2 id="s1"><span class="secno">1</span>项目定位与核心概念</h2>
+<p>Sophon-Realtime 是一套<strong>开源全双工（full-duplex）语音对话模型</strong>：模型在你说话时持续监听，判断你何时说完、是否只是附和、是否还在思考；回复自带语气（笑声、叹气、重读），并可被随时打断。它属于 <strong>S2S（Speech-to-Speech，语音到语音）</strong>路线——区别于传统"ASR → LLM → TTS"三段式流水线（注意与 NLP 里的 seq2seq"序列到序列"是缩写撞车，语境不同）。</p>
+
+<table>
+<tr><th>概念</th><th>含义</th></tr>
+<tr><td><strong>全双工</strong></td><td>听说同时进行：你说到一半它已在起草回答，你打断它立刻停，可像真人打电话一样抢话</td></tr>
+<tr><td><strong>副语言理解</strong></td><td>不只听"说了什么"，还听"怎么说"：情绪、重音、讽刺、笑声、叹气</td></tr>
+<tr><td><strong>共享大脑</strong></td><td>三种 build 共用同一个模型（32B 或 4B），负责听音、判断话轮、写带声音标签的回复</td></tr>
+<tr><td><strong>声音标签</strong></td><td>回复中的 <code>[laughter]</code>、<code>[sigh]</code>、<code>&lt;strong&gt;…&lt;/strong&gt;</code> 等标记，由语音层"演出来"，不会被念成文字</td></tr>
+<tr><td><strong>DuplexJev</strong></td><td>同团队开源的"语音决策模型"，即共享大脑里的听觉/判断部分，一次前向回答话轮、情绪、重音等所有决策（92ms）</td></tr>
+</table>
+
+<div class="note"><strong>架构核心思想</strong>（源码 docstring 原文翻译）："框架管会话、音频接入、VAD 和打断；<strong>话轮由 DuplexJev（stage 0 模型本身）决定</strong>"——即能量 VAD 只回答"何时该问"，语义模型回答"该不该接"。</div>
+
+<h2 id="s2"><span class="secno">2</span>三种 build：Tag / Flash / E2E</h2>
+<p>三种 build 差异<strong>只在"文字回复如何变成声音"</strong>，听与想的部分完全共享：</p>
+<table>
+<tr><th>维度</th><th>Tag</th><th>Flash</th><th>E2E</th></tr>
+<tr><td>发声方式</td><td>带声音标签的回复 → 表现力强的语音模型演绎</td><td>同样的带标签回复 → 更轻更快的语音模型，每 80ms 一帧</td><td>无语音 token 模型：约 350M 参数的 talker 一边读回复一边直接生成连续声学向量（约 6.5 帧/秒）→ 2 步解码器 + 声码器出 24kHz 音频</td></tr>
+<tr><td>定位</td><td>表现力：陪伴、角色、演示</td><td>吞吐与规模：客服、车载、单卡多用户</td><td>最快首音 + 仍有语气；自研引擎，便于改造</td></tr>
+<tr><td>单用户首音</td><td>约 0.6s</td><td>0.31s</td><td>约 0.25s</td></tr>
+<tr><td>每 80GB GPU 推荐并发</td><td>16</td><td><strong>40</strong></td><td>16</td></tr>
+<tr><td>语言</td><td>中英全支持 + 意德西法葡</td><td>同左 + 日语、俄语</td><td>内置音色仅中英</td></tr>
+<tr><td>声音克隆</td><td>3–10s 片段</td><td>3–10s 片段</td><td>5–12s 片段</td></tr>
+</table>
+
+<p>另有 4B 大脑版本（<code>DuplexJev-4B-Para</code> + 写标签 adapter）：对话技能基本保留（Full-Duplex-Bench 94.3 vs 32B 的 94.0），但知识与推理显著变弱（VoiceBench 62.4 vs 82.8；Big Bench Audio 44.3% vs 81.8%）。Tag 与 Flash 共用同一套 API，可后切换；E2E 自 1.1.4 起也可跑在 vLLM-Omni 上、接口与 Tag/Flash 一致。</p>
+
+<h2 id="s3"><span class="secno">3</span>分层架构</h2>
+
+<figure>
+<svg viewBox="0 0 920 430" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="分层架构">
+<defs>
+<marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M2 1L8 5L2 9" fill="none" stroke="#57606a" stroke-width="1.5" stroke-linecap="round"/>
+</marker>
+</defs>
+<rect x="10" y="10" width="900" height="410" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="36" text-anchor="middle" font-size="15" font-weight="600" fill="#1f3a5f">分层架构：对话控制全部集中在插件层 duplex.py（约 1085 行）</text>
+
+<g>
+<rect x="40" y="60" width="840" height="76" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="60" y="84" font-size="13" font-weight="600" fill="#0C447C">协议层 · live/sophon_live/（GPT-Live 网关）</text>
+<text x="60" y="104" font-size="11.5" fill="#185FA5">gateway.py：会话/协议转换 · 自有 barge-in VAD（20ms 帧，200ms 触发）· 100ms 播放泵 · transcript 按播放进度释放</text>
+<text x="60" y="122" font-size="11.5" fill="#185FA5">backend.py / adapters.py：delegation 工具委派（查询/动作交后端大模型，结果再说出）· LiveKit/Pipecat 适配</text>
+</g>
+<g>
+<rect x="40" y="148" width="840" height="66" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="60" y="172" font-size="13" font-weight="600" fill="#085041">框架层 · vLLM-Omni duplex 框架</text>
+<text x="60" y="192" font-size="11.5" fill="#0F6E56">会话与 fence/epoch/turn_id 管理 · server_vad 能量 VAD 与 barge_in_on_speech · append 事务（reservation + commit / 15s 超时回滚）</text>
+</g>
+<g>
+<rect x="40" y="208" width="840" height="106" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="1.2"/>
+<text x="60" y="232" font-size="13" font-weight="600" fill="#712B13">插件层 · plugin/sophon_realtime/duplex.py ★ 本文重点 ★</text>
+<text x="60" y="252" font-size="11.5" fill="#993C1D">话轮检查（四选项单 token + logprobs）· 投机起草与释放 · 打断截断（last_play 播放进度估算）</text>
+<text x="60" y="270" font-size="11.5" fill="#993C1D">历史管理（音频优先/滑动窗口）· merge&amp;abort / BC_RESUME 三级恢复 · gen 计数器作废在途判决</text>
+<text x="60" y="288" font-size="11.5" fill="#993C1D">tag 与 e2e 的 duplex.py 完全相同（MD5 一致）；flash 仅 caption 不剥声音标签，其余一致</text>
+<text x="60" y="306" font-size="11.5" fill="#993C1D">辅助：proc.py（check 请求不进 talker）· pipeline.py · segreg.py · tools.py（工具调用解析）</text>
+</g>
+<g>
+<rect x="40" y="326" width="405" height="76" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="60" y="350" font-size="13" font-weight="600" fill="#633806">模型层 · stage 0（DuplexJev 大脑）</text>
+<text x="60" y="370" font-size="11.5" fill="#854F0B">32B / 4B：直接听音频、判断话轮与情绪、写带声音标签的回复</text>
+<text x="60" y="388" font-size="11.5" fill="#854F0B">支持 LoRA 微调（ms-swift，改人格/语气/领域，不改声音与话轮）</text>
+<text x="60" y="414" font-size="11" fill="#854F0B"></text>
+</g>
+<g>
+<rect x="475" y="326" width="405" height="76" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="495" y="350" font-size="13" font-weight="600" fill="#633806">模型层 · stage 2（发声）</text>
+<text x="495" y="370" font-size="11.5" fill="#854F0B">Tag：表现力语音模型 · Flash：轻量快帧语音模型 · E2E：350M talker 直出声学向量</text>
+<text x="495" y="388" font-size="11.5" fill="#854F0B">sophon_expressive/engine.py 仅为 talker 合成引擎，不参与任何对话控制</text>
+</g>
+</svg>
+<figcaption>图 1 · 分层架构（依据源码文件树与逐行阅读整理）</figcaption>
+</figure>
+
+<h2 id="s4"><span class="secno">4</span>话轮判断：DuplexJev 的具体实现</h2>
+<p>核心不是规则，而是<strong>把话轮判断做成一道四选项选择题，让大脑模型用一个 token 回答</strong>，再用 logprobs 取概率：</p>
+<pre><code>问题：用户现在处于什么话轮状态？
+A. 话说完了，可以接话        B. 句子没说完，还在继续
+C. 简短附和，不是要接话      D. 还在组织语言，或要求先等一下
+（附上下文：助手刚才说的话 + 用户音频 &lt;|audio|&gt;）
+→ max_tokens=1, temperature=0, logprobs=20，softmax(A..D) 得 P(finished)、P(backchannel)</code></pre>
+
+<figure>
+<svg viewBox="0 0 920 350" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="话轮检查点">
+<rect x="10" y="10" width="900" height="330" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="34" text-anchor="middle" font-size="14" font-weight="600" fill="#1f3a5f">静音检查点 × 阈值衰减：越等越敢接话</text>
+<line x1="60" y1="86" x2="870" y2="86" stroke="#185FA5" stroke-width="1.5"/>
+<text x="870" y="70" text-anchor="end" font-size="11.5" fill="#57606a">用户静音时长 →</text>
+<g font-size="11.5" fill="#712B13" text-anchor="middle">
+<circle cx="120" cy="86" r="6" fill="#FAECE7" stroke="#993C1D"/><text x="120" y="66">0.2s</text><text x="120" y="108">thr 0.95</text>
+<circle cx="220" cy="86" r="6" fill="#FAECE7" stroke="#993C1D"/><text x="220" y="66">0.35s</text><text x="220" y="108">thr 0.85</text>
+<circle cx="320" cy="86" r="6" fill="#FAECE7" stroke="#993C1D"/><text x="320" y="66">0.5s</text><text x="320" y="108">thr 0.70</text>
+<circle cx="470" cy="86" r="6" fill="#FAECE7" stroke="#993C1D"/><text x="470" y="66">0.8s</text><text x="470" y="108">thr 0.50</text>
+<circle cx="650" cy="86" r="6" fill="#FAECE7" stroke="#993C1D"/><text x="650" y="66">1.3s</text><text x="650" y="108">thr 0.35</text>
+<circle cx="830" cy="86" r="6" fill="#FAECE7" stroke="#993C1D"/><text x="830" y="66">2.0s</text><text x="830" y="108">thr 0.25</text>
+</g>
+<g>
+<rect x="60" y="140" width="240" height="52" rx="8" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5"/>
+<text x="180" y="162" text-anchor="middle" font-size="12.5" font-weight="600" fill="#27500A">P(finished) ≥ thr</text>
+<text x="180" y="180" text-anchor="middle" font-size="11" fill="#3B6D11">立即释放回复（草稿已备好）</text>
+<rect x="340" y="140" width="250" height="52" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="465" y="162" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0C447C">P &lt; thr</text>
+<text x="465" y="180" text-anchor="middle" font-size="11" fill="#185FA5">等下一检查点（门槛更低）</text>
+<rect x="630" y="140" width="230" height="52" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="745" y="162" text-anchor="middle" font-size="12.5" font-weight="600" fill="#633806">静音 ≥ 2.0s</text>
+<text x="745" y="180" text-anchor="middle" font-size="11" fill="#854F0B">兜底：强制回复</text>
+</g>
+<text x="460" y="240" text-anchor="middle" font-size="12" fill="#24292f">判定"静音"的是 20ms 能量 VAD：阈值 = max(0.012, 噪声底×3.5)，噪声底自适应衰减；持续有声 ≥100ms 判定"用户开始说话"</text>
+<text x="460" y="262" text-anchor="middle" font-size="12" fill="#24292f">用户一开口 → gen+1：所有在途判决立即作废（乐观失效）；0.6s 环形缓冲保存句首，避免切头</text>
+<text x="460" y="284" text-anchor="middle" font-size="12" fill="#24292f">噪声鲁棒模式（PERIODIC_S）：说话期间周期性问话轮，峰值/中值 RMS ≥ 4（约12dB）才认 —— 专治街道/电话场景"永远等不到静音"</text>
+<text x="460" y="314" text-anchor="middle" font-size="11.5" fill="#993C1D">所有阈值/检查点均有 SOPHON_ 前缀环境变量可调；启动后自动 warm-up（1 次空跑话轮问题 + 1 次真实会话）消除冷启动延迟</text>
+</svg>
+<figcaption>图 2 · 话轮判断时间线（依据 duplex.py 源码）</figcaption>
+</figure>
+
+<p>三个关键工程决策：</p>
+<ul>
+<li><strong>选项顺序按请求哈希随机排列</strong>（blake2b 的 <code>perm_of</code>），防止模型偏向固定位置——与其 benchmark 评测的 option rotation 是同一手法。</li>
+<li><strong>话轮检查不走框架 append</strong>：每次 append 会推进 turn/fence 状态，与正在播放的回复冲突；因此后台线程直接 HTTP 调本服务 stage 0 的 <code>/v1/chat/completions</code>，且 <code>proc.py</code> 识别 <code>sophon_kind=check</code> 请求只出一个字母、不进 talker。</li>
+<li><strong>中英双语模板</strong>：问题以 <code>TPL["zh"|"en"]</code> 渲染，附"助手刚才说的是…"上下文（被切回复则用截断文本）。</li>
+</ul>
+
+<h2 id="s5"><span class="secno">5</span>打断（barge-in）机制与历史截断</h2>
+<p>打断检测是<strong>双层</strong>的：引擎层由框架 <code>server_vad</code> 的 <code>barge_in_on_speech</code> 触发；GPT-Live 网关层自备 20ms 能量 VAD（有声 ≥200ms 且正在播放 → 丢弃播放队列），因为 <strong>GPT-Live 客户端期望服务端主动闭嘴，而引擎只裁历史不停播放</strong>。</p>
+
+<p>截断的核心数据结构是回复完成时记录的 <code>last_play = {t0: 播放起点, dur: 音频总时长, entry: 历史条目, text: 完整文本}</code>。关键在于<strong>"实际听到多少"不是精确已知的，是估算的</strong>：</p>
+<pre><code>played = now − t0 − 0.25s        # 0.25s = VAD 起说话检测滞后(~0.1s) + 客户端缓冲(~60ms) 等补偿
+n = len(text) × played / dur     # 文本按播放进度比例截断
+a_text = text[:n] + "……（被用户打断）"
+a_audio = a_audio[: played×SR]   # 音频截到已播秒数；played &gt; 0.5s 才保留，否则整段丢弃</code></pre>
+
+<figure>
+<svg viewBox="0 0 920 330" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="打断截断时序">
+<defs>
+<marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="#57606a" stroke-width="1.5" stroke-linecap="round"/>
+</marker>
+</defs>
+<rect x="10" y="10" width="900" height="310" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="34" text-anchor="middle" font-size="14" font-weight="600" fill="#1f3a5f">打断截断：历史只保留用户实际听到的部分</text>
+<g>
+<rect x="70" y="52" width="100" height="30" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="120" y="71" text-anchor="middle" font-size="12" font-weight="600" fill="#0C447C">用户</text>
+<rect x="410" y="52" width="120" height="30" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="470" y="71" text-anchor="middle" font-size="12" font-weight="600" fill="#085041">插件 duplex.py</text>
+<rect x="700" y="52" width="120" height="30" rx="8" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
+<text x="760" y="71" text-anchor="middle" font-size="12" font-weight="600" fill="#633806">引擎+播放</text>
+</g>
+<line x1="120" y1="82" x2="120" y2="290" stroke="#85B7EB" stroke-width="0.5" stroke-dasharray="4 4"/>
+<line x1="470" y1="82" x2="470" y2="290" stroke="#5DCAA5" stroke-width="0.5" stroke-dasharray="4 4"/>
+<line x1="760" y1="82" x2="760" y2="290" stroke="#FAC775" stroke-width="0.5" stroke-dasharray="4 4"/>
+<line x1="760" y1="106" x2="125" y2="106" stroke="#BA7517" stroke-width="1.5" marker-end="url(#arr2)"/>
+<text x="440" y="100" text-anchor="middle" font-size="11.5" fill="#633806">播放回复（记录 t0 与 dur）</text>
+<line x1="120" y1="136" x2="465" y2="136" stroke="#D85A30" stroke-width="1.5" marker-end="url(#arr2)"/>
+<text x="292" y="130" text-anchor="middle" font-size="11.5" fill="#993C1D">用户开口（有声≥100ms 判起说话）</text>
+<rect x="330" y="152" width="280" height="26" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="470" y="169" text-anchor="middle" font-size="11.5" fill="#085041">played = now − t0 − 0.25s（补偿检测滞后+缓冲）</text>
+<rect x="330" y="186" width="280" height="26" rx="6" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="470" y="203" text-anchor="middle" font-size="11.5" fill="#085041">n = len(text) × played / dur → 文本按比例截断</text>
+<line x1="470" y1="226" x2="755" y2="226" stroke="#A32D2D" stroke-width="1.5" marker-end="url(#arr2)"/>
+<text x="612" y="220" text-anchor="middle" font-size="11.5" fill="#791F1F">停播放、丢弃未播生成内容</text>
+<rect x="180" y="244" width="560" height="40" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text x="460" y="261" text-anchor="middle" font-size="11.5" fill="#712B13">a_text = text[:n] + "……（被用户打断）"；a_audio 截到 played 秒</text>
+<text x="460" y="278" text-anchor="middle" font-size="11.5" fill="#712B13">生成中被打断：按 播放时间/已生成时长 比例估算；英文截点回退到词边界</text>
+</svg>
+<figcaption>图 3 · 打断截断时序（依据 duplex.py 源码）</figcaption>
+</figure>
+
+<p>网关层的配套机制：播放泵以 100ms 帧外发音频并累计 <code>played_s</code>；transcript 按"中文 4.5 字/秒、英文 14 字/秒 + 前导时间"释放字幕；<code>_drop_playback</code> 时把所有回复的文本截到已释放字符。用户语音缓冲最多保留 30s；回复开始时立即结算用户段并转写（不足 0.24s 有声则不转写）。用户段起点/终点按帧 RMS 定位并前后各扩 0.2s。</p>
+
+<h2 id="s6"><span class="secno">6</span>上下文管理</h2>
+<p>历史条目的数据结构（整套设计的精髓）：</p>
+<pre><code>history[i] = {
+    "user":    np.float32 音频,          # 本轮用户语音，进 prompt 时用 &lt;|audio|&gt; 占位
+    "a_audio": np.float32 音频 | None,   # assistant 侧优先存"实际合成播出的音频"
+    "a_text":  str,                      # 截断/打断时降级用的文本
+    "chain":   [ {results, a_text, a_audio, tool_calls} ],  # 工具调用链（最多 MAX_STEPS 轮）
+}</code></pre>
+<ul>
+<li><strong>assistant 历史优先用音频本身</strong>：完整播出的回复以 <code>&lt;|audio|&gt;</code>（带真实音频）进下一轮 prompt——语气、笑声等副语言信息因此能跨轮保留；被打断的回复降级为截断文本 + "……（被用户打断）"标记。</li>
+<li><strong>滑动窗口</strong>：最多 8 轮或用户语音累计 120 秒，超限丢最旧——按"用户侧时长"而非 token 数裁剪，对语音模型是更贴谱的预算单位。</li>
+<li>会话开始可注入文本历史（GPT-Live 的 <code>session.start</code> input / <code>extra_body.history</code>）。</li>
+<li>系统提示词（中英双语）核心约束："只写要说出口的话，不要写括号说明、表情或格式符号；数字、日期、金额、符号和英文缩写都直接写成口语念法；需要时可以用声音标签表现笑声、咳嗽和重读。"——Tag build 的写标签 LoRA（tl2）依赖该提示词，缺失时标签产出显著减少。</li>
+</ul>
+
+<h2 id="s7"><span class="secno">7</span>打断后的三级恢复</h2>
+<p>这是对"抢答/打断"错误的补偿设计——对话历史必须永远等于"双方真实听到/说出的内容"这条不变量的守护机制：</p>
+
+<figure>
+<svg viewBox="0 0 920 400" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="三级恢复">
+<rect x="10" y="10" width="900" height="380" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="34" text-anchor="middle" font-size="14" font-weight="600" fill="#1f3a5f">打断 / 抢答后的三级恢复 + 投机起草</text>
+<g>
+<rect x="280" y="50" width="360" height="38" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="460" y="73" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0C447C">用户打断后重新开口（被 VAD 检出）</text>
+</g>
+<g>
+<rect x="40" y="120" width="270" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text x="175" y="142" text-anchor="middle" font-size="11.5" fill="#712B13">距上次回复 ≤ 2s 且用户继续说完整内容</text>
+<text x="175" y="160" text-anchor="middle" font-size="11.5" fill="#712B13">（系统抢答过早）？</text>
+<rect x="330" y="120" width="280" height="56" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text x="470" y="142" text-anchor="middle" font-size="11.5" fill="#712B13">被打断 ≤ 4s、语音 &lt; 1.5s，且</text>
+<text x="470" y="160" text-anchor="middle" font-size="11.5" fill="#712B13">P(附和) ≥ 0.5 且 &gt; P(说完)？</text>
+<rect x="630" y="120" width="250" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="755" y="148" text-anchor="middle" font-size="11.5" fill="#444441">都不是：用户在说新内容</text>
+</g>
+<g>
+<rect x="40" y="204" width="270" height="86" rx="8" fill="#FAECE7" stroke="#993C1D" stroke-width="0.5"/>
+<text x="175" y="226" text-anchor="middle" font-size="12.5" font-weight="600" fill="#712B13">① merge &amp; abort</text>
+<text x="175" y="246" text-anchor="middle" font-size="11" fill="#993C1D">上条回复作废（mute_rid，移出历史）</text>
+<text x="175" y="264" text-anchor="middle" font-size="11" fill="#993C1D">prev_user 音频并回本轮</text>
+<text x="175" y="282" text-anchor="middle" font-size="11" fill="#993C1D">合并用户语音重新回答</text>
+<rect x="330" y="204" width="280" height="86" rx="8" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5"/>
+<text x="470" y="226" text-anchor="middle" font-size="12.5" font-weight="600" fill="#27500A">② BC_RESUME（续讲）</text>
+<text x="470" y="246" text-anchor="middle" font-size="11" fill="#3B6D11">丢弃被切 entry，把"已说出的话"作为</text>
+<text x="470" y="264" text-anchor="middle" font-size="11" fill="#3B6D11">assistant 前缀，模型字面续写</text>
+<text x="470" y="282" text-anchor="middle" font-size="11" fill="#3B6D11">完成后并回原 entry（a_text = said + 续写）</text>
+<rect x="630" y="204" width="250" height="86" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="755" y="240" text-anchor="middle" font-size="12.5" font-weight="600" fill="#444441">③ 新话轮</text>
+<text x="755" y="260" text-anchor="middle" font-size="11" fill="#5F5E5A">正常回答新问题</text>
+</g>
+<g>
+<rect x="40" y="312" width="840" height="64" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="460" y="334" text-anchor="middle" font-size="12" font-weight="600" fill="#085041">投机起草（speculative）：静音 0.05s 即开始起草，held 无声不外发</text>
+<text x="460" y="354" text-anchor="middle" font-size="11.5" fill="#0F6E56">话轮判完 → 直接 release（省一次请求延迟）；用户继续说 → gen+1 → 草稿作废丢弃</text>
+<text x="460" y="371" text-anchor="middle" font-size="11.5" fill="#0F6E56">append 事务 15s 未确认自动回滚、重发上限 3 次；关键不变量：committed history ≡ 用户真实听到/说出的内容</text>
+</g>
+</svg>
+<figcaption>图 4 · 三级恢复决策树（依据 duplex.py 源码）</figcaption>
+</figure>
+
+<h2 id="s8"><span class="secno">8</span>关键参数速查</h2>
+<p>全部可用 <code>SOPHON_</code> 前缀环境变量覆盖（如 <code>SOPHON_IGNORE_SHORT</code>、<code>SOPHON_LIVE_BARGE_MS</code>、<code>SOPHON_LIVE_BARGE_RMS</code>）：</p>
+<table>
+<tr><th>参数</th><th>默认值</th><th>作用</th></tr>
+<tr><td><code>CHECKS</code> / <code>THRS</code></td><td>0.2/0.35/0.5/0.8/1.3/2.0s · 0.95→0.25</td><td>静音检查点与对应触发阈值（衰减）</td></tr>
+<tr><td>VAD</td><td>20ms 帧 · thr=max(0.012, 噪声底×3.5)</td><td>静音判定；噪声底自适应衰减 0.98</td></tr>
+<tr><td>起说话判定</td><td>有声 ≥100ms</td><td>用户开口（触发打断/作废在途判决）</td></tr>
+<tr><td><code>PRE</code> 环形缓冲</td><td>0.6s</td><td>保存说话起点前音频，防切头</td></tr>
+<tr><td>打断截断补偿</td><td>0.25s</td><td>played = now − t0 − 0.25s</td></tr>
+<tr><td>音频保留门槛</td><td>played &gt; 0.5s</td><td>已播不足 0.5s 时整段丢弃</td></tr>
+<tr><td><code>MERGE_WINDOW</code></td><td>2s</td><td>回复发出后 2s 内用户继续说 → 抢答恢复</td></tr>
+<tr><td>BC 判定窗口</td><td>4s 内 · 语音 &lt;1.5s · P(附和)≥0.5 且 &gt;P(说完)</td><td>附和恢复（BC_RESUME）触发条件</td></tr>
+<tr><td><code>SPEC_AT</code></td><td>0.05s</td><td>静音 0.05s 即开始投机起草</td></tr>
+<tr><td><code>HIST_TURNS</code> / <code>HIST_SEC</code></td><td>8 轮 / 120s</td><td>历史滑动窗口（按用户侧时长）</td></tr>
+<tr><td>网关打断</td><td>BARGE_MS=200ms · RMS≥0.015</td><td>播放中有声 200ms → 丢弃播放队列</td></tr>
+<tr><td>播放泵</td><td>100ms 帧</td><td>连续实时外发，首帧立即发</td></tr>
+<tr><td>transcript 释放速率</td><td>中文 4.5 字/s · 英文 14 字/s</td><td>按播放进度 + 前导时间释放字幕</td></tr>
+<tr><td>append 事务</td><td>15s 超时回滚 · 重发 ≤3 次</td><td>框架层 reservation + commit/rollback</td></tr>
+<tr><td>用户音频缓冲</td><td>最多 30s</td><td>网关层滑动保留</td></tr>
+<tr><td>delegation 静默合并</td><td><code>DELEG_QUIET_S</code> 计时器</td><td>后端流式更新按静默期合并去重后投喂</td></tr>
+</table>
+
+<h2 id="s8b"><span class="secno">9</span>协议栈与策略公式</h2>
+<p>第 8 章列了参数"是什么"，本章回答"怎么算"：工程用到哪些协议，以及每条策略背后的具体公式。全部来自源码（duplex.py、gateway.py）与 DuplexJev README 的一手材料。</p>
+
+<h3>9.1 协议栈总览：两套对外实时协议 + 一条内部决策通道</h3>
+<table>
+<tr><th>层</th><th>协议</th><th>端点 / 形式</th><th>用途</th></tr>
+<tr><td>实时流（主协议）</td><td><strong>OpenAI Realtime 兼容</strong> over WebSocket</td><td><code>ws://HOST:8000/v1/realtime</code>；托管版 <code>wss://api.adventists.ai/sophon/v1/realtime</code></td><td>全双工音频流会话；<code>model</code> 选 tag/flash/e2e；会话参数 <code>turn_detection=server_vad</code>、<code>extra_body.auto_response=true</code></td></tr>
+<tr><td>实时流（第二协议）</td><td><strong>GPT-Live 兼容</strong> over WebSocket</td><td><code>ws://HOST:8780/v1/live/sessions</code>（<code>live/</code> 网关）</td><td>GPT-Live 客户端只改 URL+key 即可接入；会话有效期 7200s</td></tr>
+<tr><td>非流式</td><td><strong>OpenAI Chat Completions 兼容</strong> over HTTP</td><td><code>POST /v1/chat/completions</code>（audio in, text+audio out）</td><td>单轮音频问答、测试脚本</td></tr>
+<tr><td>生态适配</td><td><strong>LiveKit / Pipecat</strong></td><td><code>live/examples/livekit_agent.py</code>、<code>pipecat_bot.py</code></td><td>挂进现有语音应用框架，替换语音层</td></tr>
+<tr><td><strong>内部决策通道</strong></td><td>HTTP（同一服务的 <code>/v1/chat/completions</code>）</td><td>duplex.py 后台线程直调 stage 0：<code>max_tokens=1, temperature=0, logprobs=20</code></td><td>话轮/附和判断——<strong>故意不走 WebSocket/append</strong>，避免推进 turn/fence 状态</td></tr>
+<tr><td>引擎内部</td><td>vLLM-Omni data plane</td><td>append 事务（fence/epoch/turn_id 三元组 + reservation）</td><td>音频流写入与会话状态管理</td></tr>
+</table>
+
+<figure>
+<svg viewBox="0 0 920 470" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="协议栈与内部通道">
+<defs>
+<marker id="parr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M2 1L8 5L2 9" fill="none" stroke="#57606a" stroke-width="1.5" stroke-linecap="round"/>
+</marker>
+</defs>
+<rect x="10" y="10" width="900" height="450" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="36" text-anchor="middle" font-size="15" font-weight="600" fill="#1f3a5f">协议栈：两套对外实时协议 + 一条内部决策通道</text>
+
+<g>
+<rect x="70" y="60" width="240" height="80" rx="10" fill="#ddf4ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="190" y="84" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">OpenAI Realtime 兼容</text>
+<text x="190" y="104" text-anchor="middle" font-size="11" fill="#57606a">ws://HOST:8000/v1/realtime</text>
+<text x="190" y="122" text-anchor="middle" font-size="11" fill="#57606a">turn_detection=server_vad</text>
+</g>
+<g>
+<rect x="610" y="60" width="240" height="80" rx="10" fill="#ddf4ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="730" y="84" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">GPT-Live 兼容（live 网关）</text>
+<text x="730" y="104" text-anchor="middle" font-size="11" fill="#57606a">ws://HOST:8780/v1/live/sessions</text>
+<text x="730" y="122" text-anchor="middle" font-size="11" fill="#57606a">delegation 工具委派</text>
+</g>
+
+<g>
+<rect x="70" y="190" width="780" height="66" rx="10" fill="#dafbe1" stroke="#2da44e" stroke-width="0.5"/>
+<text x="460" y="214" text-anchor="middle" font-size="13" font-weight="600" fill="#116329">vLLM-Omni 引擎（data plane：fence / epoch / turn_id append 事务）</text>
+<text x="460" y="236" text-anchor="middle" font-size="11" fill="#3B6D11">音频重采样 16k↔24k · PCM16 base64 · E2E 可换自研引擎（API 一致）</text>
+</g>
+<line x1="190" y1="140" x2="280" y2="186" stroke="#57606a" stroke-width="1.5" marker-end="url(#parr)"/>
+<line x1="730" y1="140" x2="640" y2="186" stroke="#57606a" stroke-width="1.5" marker-end="url(#parr)"/>
+
+<g>
+<rect x="70" y="290" width="350" height="80" rx="10" fill="#faeeda" stroke="#ba7517" stroke-width="1"/>
+<text x="245" y="314" text-anchor="middle" font-size="13" font-weight="600" fill="#633806">内部决策通道（旁路）</text>
+<text x="245" y="334" text-anchor="middle" font-size="11" fill="#854F0B">duplex.py 后台线程 → HTTP 直调 stage 0</text>
+<text x="245" y="352" text-anchor="middle" font-size="11" fill="#854F0B">max_tokens=1 · logprobs=20 · 不走 append</text>
+</g>
+<g>
+<rect x="500" y="290" width="350" height="80" rx="10" fill="#f0f6ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="675" y="314" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">生态适配层</text>
+<text x="675" y="334" text-anchor="middle" font-size="11" fill="#57606a">LiveKit agent · Pipecat bot · SillyTavern 插件</text>
+<text x="675" y="352" text-anchor="middle" font-size="11" fill="#57606a">非流式 POST /v1/chat/completions</text>
+</g>
+<line x1="245" y1="290" x2="245" y2="260" stroke="#ba7517" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#parr)"/>
+<line x1="675" y1="290" x2="675" y2="260" stroke="#54aeff" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#parr)"/>
+
+<g>
+<rect x="70" y="396" width="780" height="52" rx="10" fill="#faece7" stroke="#993c1d" stroke-width="0.5"/>
+<text x="460" y="416" text-anchor="middle" font-size="11" fill="#712B13">GPT-Live 客户端静默超 0.3s → 网关自动补静音帧（每 0.1s 补 100ms）——引擎靠连续流察觉静音</text>
+<text x="460" y="436" text-anchor="middle" font-size="11" fill="#712B13">鉴权：API key + Origin 白名单；session.update 在 start 后被显式拒绝（unknown_parameter）</text>
+</g>
+</svg>
+<figcaption>图 5 · 协议栈与内部通道（依据 live/sophon_live/ 与 duplex.py 源码）</figcaption>
+</figure>
+
+<h3>9.2 GPT-Live 事件清单与编码约定</h3>
+<table>
+<tr><th>方向</th><th>事件</th></tr>
+<tr><td>客户端→服务端</td><td><code>session.start</code>（含 instructions、input 历史、voice、delegation 配置）· <code>session.input_audio.append</code> · <code>session.commentary.append</code> · <code>session.thinking.append</code> · <code>session.instructions.append</code> · <code>session.close</code>（<code>session.update</code> 在 start 后被显式拒绝）</td></tr>
+<tr><td>服务端→客户端</td><td><code>session.started</code> · <code>session.output_audio.delta</code>（100ms 帧）· <code>session.output_transcript.delta</code> · <code>session.input_transcript.delta</code> · <code>session.delegation.created</code> · <code>session.commentary.appended</code> · <code>session.closed</code> · <code>error</code>（code/message 结构）</td></tr>
+</table>
+<p><strong>音频编码约定</strong>：输入 PCM16 @16kHz（GPT-Live 也接受 24kHz，网关重采样）；输出 PCM16（E2E 声学层 24kHz）；JSON 事件里 base64 编码。<strong>鉴权</strong>：API key + Origin 头白名单（401/403 分开处理）。一个值得注意的设计：GPT-Live 协议里"说话权"完全在服务端——网关用 <code>_idle_feed</code> 在客户端静默超 0.3s 时自动补静音帧（每 0.1s 补 100ms 零样本），因为引擎需要连续输入流才能"察觉静音"从而触发话轮判断。这是全双工协议和传统"客户端推完就完"的请求式协议的本质区别。</p>
+
+<h3>9.3 策略公式清单（按域分组，共 25 条）</h3>
+
+<h4>域 1：信号/能量域（VAD 与打断检测）</h4>
+<table>
+<tr><th>#</th><th>公式</th><th>常量</th><th>出处</th></tr>
+<tr><td>1</td><td><strong>帧能量</strong> <code>r = √(mean(f²))</code>，f 为 20ms 帧（16kHz 下 320 样本）</td><td>帧长 20ms</td><td>gateway <code>_barge_check</code>、<code>_cut_user</code></td></tr>
+<tr><td>2</td><td><strong>自适应噪声底（EMA）</strong> <code>noise ← 0.95·noise + 0.05·r</code>（仅当 r &lt; noise×3 时更新，防语音帧污染噪声估计）</td><td>0.95 / 0.05</td><td>gateway <code>bi_noise</code></td></tr>
+<tr><td>3</td><td><strong>有声判定阈值</strong> <code>thr = max(BARGE_MIN_RMS, noise×3.5)</code></td><td>网关 0.015 / 插件 0.012</td><td>两处 VAD</td></tr>
+<tr><td>4</td><td><strong>打断触发</strong> <code>voiced ≥ BARGE_MS ∧ playing → drop_playback</code>；静音 <code>gap ≥ 120ms → voiced ← 0</code>（累计清零）</td><td>200ms / 120ms</td><td>gateway</td></tr>
+<tr><td>5</td><td><strong>起说话判定</strong>（插件层）持续有声 ≥100ms</td><td>100ms</td><td>duplex.py</td></tr>
+<tr><td>6</td><td><strong>切分有效性</strong>：<code>voiced 帧数 &lt; 12</code>（&lt;0.24s）→ 不转写；起止各外扩 3200 样本（±0.2s）防切头切尾</td><td>12 帧 / ±0.2s</td><td>gateway <code>_cut_user</code></td></tr>
+</table>
+
+<h4>域 2：时间/进度域（播放对齐与截断）</h4>
+<table>
+<tr><th>#</th><th>公式</th><th>含义</th></tr>
+<tr><td>7</td><td><strong>已听时长估算</strong> <code>played = now − t0 − 0.25s</code></td><td>0.25s = 检测滞后 + 客户端缓冲补偿；"实际听到多少"是估算不是精确值</td></tr>
+<tr><td>8</td><td><strong>文本截断比例</strong> <code>n = len(text) × played / dur</code>（回复已完成）；生成中被打断则 <code>n = len(text) × 播放时间 / 已生成时长</code></td><td>历史只保留用户真实听到的部分</td></tr>
+<tr><td>9</td><td><strong>音频截断</strong> <code>a_audio ← a_audio[: played×SR]</code>，且 <code>played &gt; 0.5s</code> 才保留，否则整段丢弃</td><td>配合"……（被用户打断）"标记</td></tr>
+<tr><td>10</td><td><strong>字幕释放速率</strong> <code>rate = total/audio_s</code>（回复完成时）；否则按语言常数：中文 4.5 字/s、英文 14 字/s；<code>upto = min(total, ⌊(played_s + LEAD/1000) × rate⌋)</code></td><td>transcript 与播放进度对齐</td></tr>
+<tr><td>11</td><td><strong>播放泵节拍</strong> <code>t_next += FRAME_MS/1000</code>，每 100ms 发一帧；空闲时首帧音频立即发（不等下一 tick）</td><td>实时帧对齐</td></tr>
+<tr><td>12</td><td><strong>静音补流</strong> 客户端静默 <code>&gt; 0.3s</code> → 每 0.1s 注入 100ms 零样本</td><td>引擎靠连续流察觉静音</td></tr>
+</table>
+
+<h4>域 3：概率/决策域（话轮与恢复，唯一的"神经公式"消费处）</h4>
+<table>
+<tr><th>#</th><th>公式</th><th>含义</th></tr>
+<tr><td>13</td><td><strong>受限 softmax</strong> <code>P(x) = softmax(logprob_x / T)</code>，x ∈ {A,B,C,D}；<code>max p</code> 即置信度</td><td>DuplexJev 单 token readout，T=0</td></tr>
+<tr><td>14</td><td><strong>检查点阈值衰减</strong> <code>thr(t)</code>：0.2s→0.95，0.35s→0.85，0.5s→0.70，0.8s→0.50，1.3s→0.35，2.0s→0.25；<code>P(finished) ≥ thr(t) → 释放回复</code>；<code>静音 ≥ 2.0s → 兜底强制回复</code></td><td>时间-置信度退火（分段常数）</td></tr>
+<tr><td>15</td><td><strong>附和判定</strong> <code>P(bc) ≥ 0.5 ∧ P(bc) &gt; P(finished) ∧ 语音 &lt; 1.5s ∧ 距打断 ≤ 4s → BC_RESUME</code></td><td>附和 vs 新话轮的分类边界</td></tr>
+<tr><td>16</td><td><strong>抢答窗口</strong> <code>now − reply_released ≤ 2s ∧ 用户继续说完整内容 → merge &amp; abort</code></td><td>上一条作废、用户语音并回</td></tr>
+<tr><td>17</td><td><strong>投机起草触发</strong> <code>静音 ≥ 0.05s → 起草（held 无声）</code>；释放前提 <code>gen(草稿) == gen(当前)</code></td><td>gen 不匹配即丢弃</td></tr>
+<tr><td>18</td><td><strong>选项位置消偏</strong> 选项字母排列 = blake2b(请求指纹) 的确定性置换</td><td>防模型位置偏置</td></tr>
+</table>
+
+<h4>域 4：状态/预算域（缓冲与历史）</h4>
+<table>
+<tr><th>#</th><th>公式</th><th>含义</th></tr>
+<tr><td>19</td><td><strong>历史滑动窗口</strong> <code>turns ≤ 8 ∧ Σ(用户侧音频秒) ≤ 120s</code>，超限丢最旧</td><td>按用户侧时长而非 token 裁剪</td></tr>
+<tr><td>20</td><td><strong>句首保护</strong> 0.6s 环形缓冲（PRE）</td><td>起说话判定前的音频不丢</td></tr>
+<tr><td>21</td><td><strong>用户音频缓冲</strong> 网关最多保留最近 30s（滑动丢弃）</td><td>内存上限</td></tr>
+<tr><td>22</td><td><strong>append 事务超时</strong> 15s 未确认 → 回滚，重发 ≤ 3 次</td><td>幂等保障</td></tr>
+</table>
+
+<h4>域 5：音频处理域（基础设施）</h4>
+<table>
+<tr><th>#</th><th>公式</th><th>含义</th></tr>
+<tr><td>23</td><td><strong>量化</strong> 输入 <code>x/32768 → f32</code>；输出 <code>clip(x×32768, −32768, 32767) → int16</code></td><td>PCM16 ↔ float</td></tr>
+<tr><td>24</td><td><strong>重采样</strong> 有理数比率用多相滤波 <code>resample_poly(x, sr_out/g, sr_in/g)</code>，否则线性插值 <code>np.interp</code></td><td>16k↔24k</td></tr>
+<tr><td>25</td><td><strong>delegation 静默合并</strong> 后端更新按 <code>QUIET_S</code> 计时器窗口合并 + 文本去重（<code>sent</code> 集合）</td><td>防重复投喂</td></tr>
+</table>
+
+<h3>9.4 设计观察：一个神经公式 + 一群 O(1) 启发式</h3>
+<div class="note">这套公式体系有清晰的分层哲学：<strong>全场只有一个"神经公式"（#13 受限 softmax），其余全是 O(1) 的廉价启发式</strong>。信号域用能量 + EMA 噪声底（#1–3），时间域用线性比例估算（#7–8），决策域用分段常数阈值（#14）——工程侧刻意不做复杂建模，把"智能"全部外包给那一次 92ms 的 forward，自己只做"消费概率的确定性策略"。这与"NLU 网关管状态、模型管语义"的分层是同构的设计观。</div>
+
+<h2 id="s9"><span class="secno">10</span>部署路径与版本演进</h2>
+<table>
+<tr><th>路径</th><th>命令/要求</th><th>说明</th></tr>
+<tr><td>托管 API</td><td><code>wss://api.adventists.ai/sophon/v1/realtime</code></td><td>OpenAI Realtime 协议，注册送 3 小时，model 选 tag/flash/e2e</td></tr>
+<tr><td>pip 本地部署</td><td><code>pip install "sophon-realtime[trt]"</code> → <code>sophon-realtime serve</code></td><td>Python 3.12 + Linux + CUDA 13；首跑下载约 42GB 权重</td></tr>
+<tr><td>one-command 脚本</td><td><code>tag|flash|e2e/install.sh</code> → <code>start.sh</code></td><td>隔离 venv + vLLM-Omni + 插件；E2E 可选自研引擎或 vLLM-Omni</td></tr>
+<tr><td>Mac / MLX</td><td><code>bash mac/install.sh</code>（4B：<code>SIZE=4B</code>）</td><td>32B Flash-4bit 需 36GB+ 统一内存；4B 约 11GB，16GB Mac 可跑</td></tr>
+<tr><td>Live mode 网关</td><td><code>BUILD=tag PORT=8000 LIVE_PORT=8780 bash start_live.sh</code></td><td>GPT-Live 兼容：delegation 把查询/动作委派给后端大模型，Sophon 保持语音</td></tr>
+</table>
+<div class="warn"><strong>安装坑：[trt] 不能省</strong>。省掉后语音段退回纯 PyTorch，负载下慢约 3 倍（16 用户首音 0.75s → 2.4s，且伴随 1–1.5s 卡顿）。<code>serve</code> 启动时只警告不代装。</div>
+<p><strong>版本演进主线</strong>：v1.0（2026-11-08，三 build 开源）→ v1.1（零样本声音克隆 3–10s，免微调免重启；E2E 进单卡）→ v1.2（长回复不再截断；Flash-4bit 单卡 32GB；Mac MLX 路线）→ v1.3（E2E 支持克隆）→ v1.4（4B 大脑，24GB 卡可跑 Flash-4B）→ v1.5（Tag-4B-W4 GPTQ 量化 24GB 卡；Mac 4B 8-bit）。官方 README 明确提醒：只克隆本人或有授权的声音，不得用于冒充或欺骗。</p>
+
+<h2 id="s9c"><span class="secno">11</span>部署策略与配置详解</h2>
+<p>第 10 章回答部署路径"有哪些"，本章回答"怎么选、怎么配"：硬件要求矩阵、部署形态决策、E2E 三服务架构与端口、三层配置体系、容量规划与检查清单。依据官方 <code>docs/deploy.md</code>（E2E 部署文档）、<code>tag/config/*.yaml</code> 与 README 整理。</p>
+
+<h3>11.1 硬件要求矩阵</h3>
+<table>
+<tr><th>部署形态</th><th>硬件</th><th>实际占用</th><th>权重磁盘</th><th>备注</th></tr>
+<tr><td>托管 API</td><td>无 GPU</td><td>—</td><td>—</td><td><code>wss://api.adventists.ai/sophon/v1/realtime</code>，注册送 3 小时</td></tr>
+<tr><td>32B（Tag/Flash/E2E）</td><td>1×80GB（H100 / A100 80G / H800）</td><td>约 70GB</td><td>Tag/Flash 约 42–45GB；E2E 约 75GB</td><td>驱动 ≥580（wheels 按 CUDA 13 编译）</td></tr>
+<tr><td>Tag-4B</td><td>1×32GB</td><td>约 27GB</td><td>—</td><td>语音段与声音与 32B 相同</td></tr>
+<tr><td>Flash-4B</td><td>1×24GB</td><td>约 21GB</td><td>—</td><td>门槛最低的完整版</td></tr>
+<tr><td>E2E-4B</td><td>1×32GB</td><td>约 31GB</td><td>—</td><td>—</td></tr>
+<tr><td>Tag-4B-W4</td><td>1×24GB（4090/3090 级）</td><td>约 21GB</td><td>—</td><td>语言模型 GPTQ W4A16 量化</td></tr>
+<tr><td>Mac 32B Flash-4bit（MLX）</td><td>Apple 芯片 36GB+ 统一内存</td><td>下载约 24GB</td><td>—</td><td>全双工/AEC 齐全，停说后约 1s 开口</td></tr>
+<tr><td>Mac 4B（MLX）</td><td>16GB+ 统一内存</td><td>约 11GB</td><td>—</td><td>8-bit 大脑；M4 Max 停说后 0.3–0.5s</td></tr>
+</table>
+<p><strong>软件要求</strong>：Linux；NVIDIA 驱动 580+；Python——pip 包路线要 3.12，仓库脚本路线 3.10+ 即可；E2E 需要 CUDA MPS（<code>nvidia-cuda-mps-control</code>，随驱动附带）。</p>
+<div class="warn">官方标注的 4B / W4 / Mac 数字多为<strong>"显存预算受限"环境下实测</strong>（H100 上限 24GB、M4 Max 上限 16GB GPU 预算），尚未在物理 24GB 显卡与真实 16GB Mac 上完成验证——低配选型时务必留余量。</div>
+
+<h3>11.2 部署形态决策</h3>
+<p>成本从零到高的推荐顺序：<strong>托管 API 试听效果 → 租一张 24GB 卡跑 Flash-4B 验证业务 → 生产上 32B（80GB）</strong>。具体决策点：</p>
+<ul>
+<li><strong>build 选择</strong>：表现力选 Tag、单卡并发选 Flash（40 路）、最低首音选 E2E（0.25s）——见第 2 章对比表；</li>
+<li><strong>多 GPU 横向扩展</strong>：无内置分布式，每 GPU 一实例（<code>GPU=1 PORT=8001 …</code>）挂负载均衡；</li>
+<li><strong>大陆网络优化</strong>：<code>PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple bash install.sh</code>；权重下载走 ModelScope（<code>--source modelscope</code>）；</li>
+<li><strong>复用已下载权重</strong>：<code>SKIP_DOWNLOAD=1 MODEL_DIR=/path/to/model bash install.sh</code>；</li>
+<li><strong>从 v1.1.0 及更早两卡版升级</strong>：权重需重新下载（新版含 <code>talker220/</code> 目录，旧 <code>talker/</code> 不再需要）；</li>
+<li><strong>Live 网关分离</strong>：网关与引擎可分机部署，<code>BUILD=tag PORT=8000 LIVE_PORT=8780 bash start_live.sh</code>。</li>
+</ul>
+
+<h3>11.3 E2E 三服务架构（同卡三进程 + MPS）</h3>
+<p>E2E build 在单卡上以三个本地服务运行：</p>
+<table>
+<tr><th>服务</th><th>职责</th><th>默认端口</th></tr>
+<tr><td>Thinker</td><td>听音、判话轮、写带标签回复；vLLM 0.29 + reply LoRA</td><td>8300</td></tr>
+<tr><td>Speaking engine</td><td>talker（约 350M）→ 向量帧 → 解码器 → 24kHz；所有会话在同一个循环里批处理</td><td>8120</td></tr>
+<tr><td>Gateway</td><td>WebSocket API + 浏览器 demo：麦克风流、话轮、播放、barge-in</td><td>8000</td></tr>
+</table>
+<div class="note"><strong>CUDA MPS 是 E2E 性能关键</strong>：<code>scripts/start.sh</code> 自启 MPS daemon，让 thinker 与语音引擎同时用卡；无 MPS 时两进程轮流占卡——首音从 0.25s 退化到约 0.6s，并发显著下降。首次启动约 5 分钟（载权重 + 语音引擎捕获 CUDA graph），勿误判为挂死；<code>stop.sh</code> 会连同自启的 MPS daemon 一起停；日志在 <code>logs/</code>。</div>
+<p><strong>WebSocket API（/ws）事件流</strong>：客户端发 <code>{"type": "config", "lang": "zh"|"en", "history": true}</code> → 持续发麦克风二进制帧（16kHz 单声道 PCM16，任意块大小，demo 每帧 512 样本）→ 服务端返回 <code>turn_commit</code>（判完话轮开始回答）/ <code>text</code>（回复文本，含声音标签——演出不朗读）/ 音频二进制帧（24kHz 单声道 PCM16）/ <code>barge_in</code>（你开口了，停止播放）/ <code>metrics</code> + <code>done</code>。一次性测试/跑分用 <code>{"type": "turn", "audio_b64": "...", "lang": "zh"}</code>。</p>
+
+<h3>11.4 配置文件详解：三层配置体系</h3>
+<p>两套部署面：<strong>E2E 自研引擎用环境变量；Tag/Flash 用 vLLM-Omni 部署 YAML</strong>。另有一层内容级配置。</p>
+
+<h4>(a) 服务级环境变量（E2E，docs/deploy.md）</h4>
+<table>
+<tr><th>变量</th><th>默认</th><th>说明</th></tr>
+<tr><td><code>GPU</code></td><td>0</td><td>GPU 序号</td></tr>
+<tr><td><code>PORT</code></td><td>8000</td><td>网关 / web demo 端口</td></tr>
+<tr><td><code>SLOTS</code></td><td>16</td><td>语音引擎可同时说话的会话数</td></tr>
+<tr><td><code>MPS</code></td><td>1</td><td>0 = 不使用 CUDA MPS</td></tr>
+<tr><td><code>THINKER_MEM</code></td><td>0.55</td><td>thinker 分得的显存比例</td></tr>
+<tr><td><code>SOPHON_REPLY_LORA</code></td><td>$MODEL_DIR/adapters/tag</td><td>回复 LoRA，可换成自微调的（见第 12 章）</td></tr>
+<tr><td><code>LORA_RANK</code></td><td>16</td><td>回复 LoRA 最大 rank</td></tr>
+<tr><td><code>S220_NT</code></td><td>2</td><td>解码步数；4 略更干净但解码时间约 ×2</td></tr>
+</table>
+
+<h4>(b) vLLM-Omni 部署 YAML（Tag/Flash/4B）</h4>
+<p>以 <code>tag/config/sophon_realtime_tag_1gpu.yaml</code> 为例（<code>vllm serve &lt;model&gt; --omni --deploy-config 该yaml</code>），关键字段：</p>
+<table>
+<tr><th>字段</th><th>值</th><th>说明</th></tr>
+<tr><td><code>duplex_session.max_sessions</code> / <code>idle_ttl_s</code></td><td>32 / 600</td><td>会话数上限与空闲会话 TTL</td></tr>
+<tr><td><code>server_vad_model_path</code></td><td>config/silero_vad.onnx</td><td>能量 VAD 模型路径</td></tr>
+<tr><td>三 stage 显存配比</td><td>0.62 / 0.08 / 0.08</td><td>stage 0 = thinker（<code>enable_prefix_caching</code>、<code>max_model_len</code> 8192、每 prompt 最多 20 段音频）；stage 1 = 语音 token 模型（top_k 25 / top_p 0.8）；stage 2 = flow/HiFT（max_model_len 65536，长回复的流式块在此累积）</td></tr>
+<tr><td>thinker 采样默认</td><td>temp 0.7 / top_p 0.9 / max_tokens 400</td><td>回复生成采样参数</td></tr>
+<tr><td><code>codec_chunk_frames</code></td><td>10</td><td>首块 10 个语音 token（hop 10，音色提示修剪为 10 的倍数）</td></tr>
+<tr><td><code>codec_left_context_frames</code></td><td>50</td><td>每块带最近约 2s（50 token）上下文解码——单块成本恒定</td></tr>
+<tr><td><code>codec_stream_hold_chunks</code></td><td>2</td><td>块序列 10/10/20/40 递增（第二块立即翻倍曾留缝隙，故先 hold）</td></tr>
+</table>
+
+<h4>(c) 内容级配置</h4>
+<ul>
+<li><code>config/system_prompt.json</code>：中英双语人格契约——必须与微调训练时的系统提示词一致（见第 12 章坑 #2）；</li>
+<li><code>model/voices/</code> 目录：零样本克隆音色（3–10s 单说话人 wav），增删改在下一个请求生效；</li>
+<li><code>SOPHON_</code> 前缀的策略环境变量（检查点/阈值/VAD/打断等）见第 8 章参数速查表。</li>
+</ul>
+
+<h3>11.5 容量规划（E2E，H100 80GB 官方实测）</h3>
+<table>
+<tr><th>用户 10s 内陆续到达</th><th>首音 中位 / P90</th><th>播放落后 &gt;0.3s 的回复数</th></tr>
+<tr><td>1</td><td>0.25s</td><td>0</td></tr>
+<tr><td>8</td><td>0.44 / 0.77s</td><td>0 / 8</td></tr>
+<tr><td><strong>16</strong></td><td><strong>0.44 / 0.56s</strong></td><td><strong>0 / 16（推荐上限）</strong></td></tr>
+<tr><td>24</td><td>0.58 / 0.94s</td><td>7 / 24</td></tr>
+<tr><td>32</td><td>0.67 / 0.80s</td><td>23 / 32</td></tr>
+</table>
+<p><strong>持续负载</strong>（16 会话同时起、各跑 5 轮 = 80 回复）：首音 0.51s 中位 / 0.62s P90，10/80 曾落后超 0.3s（最差 0.59s）；8 会话时 0.40/0.48s、无落后。结论：<strong>推荐每 GPU ≤16 用户</strong>；RTX PRO 6000 上 E2E 语音段慢约 2 倍（4–8 用户/GPU），多用户场景选 Tag/Flash。</p>
+
+<h3>11.6 部署检查清单与常见坑</h3>
+<table>
+<tr><th>坑</th><th>对策</th></tr>
+<tr><td>pip 安装丢失 <code>[trt]</code></td><td>语音段退回 PyTorch 慢约 3 倍（16 用户首音 0.75s→2.4s 且伴随卡顿）；<code>serve</code> 启动只警告不代装</td></tr>
+<tr><td>Python 版本混用</td><td>pip 包要 3.12；仓库脚本路线 3.10+；两套 venv 不要混</td></tr>
+<tr><td>驱动过旧</td><td>&lt;580 装不上 CUDA 13 wheels；先升驱动再装</td></tr>
+<tr><td>浏览器 demo"自听"</td><td>戴耳机，否则麦克风把模型自己的输出录回去</td></tr>
+<tr><td>首次启动慢</td><td>约 5 分钟（载权重 + 捕获 CUDA graph），非挂死，勿中途 kill</td></tr>
+<tr><td>E2E 单音色/语言限制</td><td>克隆与多语言用 Tag/Flash；E2E 单条回复上限约 4.6 分钟语音（约 960 token），句尾声音最多保持 1.6s</td></tr>
+<tr><td>低配容量误判</td><td>官方 4B/W4/Mac 数字为受限预算环境实测，物理低配卡未验证，选型留 10–20% 余量</td></tr>
+</table>
+
+<h2 id="s9b"><span class="secno">12</span>增强与微调操作指南</h2>
+<p>本章回答"如何在现有模型基础上做增强"。依据官方 <code>finetune/README.md</code>（ms-swift 路线）与 DuplexJev 训练配方整理。先明确术语：本章"增强学习"指在现有模型基础上继续训练/微调；严格意义的强化学习（RL）见 12.6。核心结论：<strong>四个层次的增强，从零成本到高成本依次是——运行时扩展（不改权重）→ LoRA 微调大脑（官方路径，一张 80GB 卡）→ 按 DuplexJev 配方自训决策模型 → 强化学习（官方未用）</strong>。</p>
+
+<h3>12.1 路径选择：先对号入座</h3>
+<table>
+<tr><th>目标</th><th>路径</th><th>成本</th></tr>
+<tr><td>改人格/语气/领域话术/工具调用习惯</td><td><strong>B：LoRA 微调 thinker</strong></td><td>1×80GB GPU，几百条样本起步</td></tr>
+<tr><td>新增一种决策类型（如车机特有场景判断）</td><td><strong>A：运行时声明问题</strong>（一行文本）</td><td>零</td></tr>
+<tr><td>提升话轮判断在特定噪声环境下的准确率</td><td><strong>C：DuplexJev 配方自训</strong></td><td>高（要数据+训练框架）</td></tr>
+<tr><td>修 encoder 听不好的语言</td><td><strong>B 的边界情况</strong>（见 12.4 新语言警告）</td><td>中，且当前无法部署</td></tr>
+</table>
+
+<h3>12.2 路径 A：零训练增强（先试这个）</h3>
+<p>DuplexJev 的 readout 机制让"新决策 = 运行时一行文本"——声明 <code>Question("id", "问题文本", [选项...])</code> 即可，无需重训。但注意<strong>问题措辞要贴训练契约的句式</strong>（"Is there X in this audio?" / "What should it do?" 这类），且选项必须保留 "none"。系统提示词、注入历史（<code>extra_body.history</code>）、delegation 后端也都是不动权重的增强手段。</p>
+
+<h3>12.3 路径 B：LoRA 微调大脑（官方路径）</h3>
+<p>官方 <code>finetune/</code> 目录提供完整操作链（在 ms-swift 4.6 / peft 0.20 / transformers 5.17、H100 实测）：</p>
+<pre><code># 1. 环境
+pip install "ms-swift&gt;=4.6" "peft&gt;=0.20,&lt;0.21" "transformers&gt;=4.51,&lt;5.20" librosa soundfile
+
+# 2. 下载底座 + tag LoRA，并重标记为 ms-swift 可续训格式
+modelscope download --model AdventistsAI/Sophon-Realtime-v1 --include 'base/*' 'adapters/*' --local_dir Sophon-Realtime-v1
+python -m sophon_swift.adapters to-swift Sophon-Realtime-v1/adapters/tag tag_swift
+
+# 3. 训练（关键：--adapters tag_swift 续训 tag LoRA，rank 固定 16 / alpha 32）
+CUDA_VISIBLE_DEVICES=0 swift sft \
+  --custom_register_path sophon_swift/swift_register.py \
+  --model Sophon-Realtime-v1 --adapters tag_swift --tuner_type lora \
+  --torch_dtype bfloat16 --dataset my_data.jsonl --max_length 4096 \
+  --num_train_epochs 2 --learning_rate 5e-5 \
+  --per_device_train_batch_size 1 --gradient_accumulation_steps 8 \
+  --gradient_checkpointing true --freeze_vit true --freeze_aligner true
+
+# 4. 导出 + 部署（替换原 tag LoRA 的位置）
+python -m sophon_swift.adapters to-vllm output/vx-xxx/checkpoint-yyy my_lora
+SOPHON_MODEL_DIR=$PWD/Sophon-Realtime-v1 SOPHON_REPLY_LORA=$PWD/my_lora bash ../scripts/start.sh</code></pre>
+
+<p><strong>数据格式</strong>（ms-swift jsonl，用户轮用 <code>&lt;audio&gt;</code> 占位，16kHz 单声道优先）：</p>
+<pre><code>{"messages": [
+  {"role": "system", "content": "你是车载语音助手……需要时可以用声音标签表现笑声、咳嗽和重读。"},
+  {"role": "user", "content": "&lt;audio&gt;"},
+  {"role": "assistant", "content": "导航已切换到&lt;strong&gt;回家&lt;/strong&gt;路线，预计三十分钟后到达。"}
+], "audios": ["data/0002.wav"]}</code></pre>
+<p>多轮对话每一用户轮都可用 <code>&lt;audio&gt;</code>；assistant 历史可以是文本，也可以是它实际说出的音频（仅作上下文、不参与训练）。工具调用走 Qwen 格式（schemas 进 <code>tools</code>，调用写成 assistant 回复，结果以 <code>role: tool</code> 返回）。</p>
+
+<p><strong>五个决定成败的坑</strong>（全部来自官方文档）：</p>
+<table>
+<tr><th>#</th><th>坑</th><th>对策</th></tr>
+<tr><td>1</td><td><strong>必须续训 tag LoRA，不能新开</strong></td><td><code>--adapters tag_swift</code>；新开 LoRA 会让模型停止写声音标签</td></tr>
+<tr><td>2</td><td><strong>系统提示词必须以标签句结尾</strong></td><td>"需要时可以用声音标签……"是 tag LoRA 的训练契约；部署时用与训练相同的提示词</td></tr>
+<tr><td>3</td><td><strong>私有数据标签密度低 → 标签退化</strong></td><td>混入官方 tag replay 数据集（8,797 条合成对话，约 1/3 带标签），占样本量 <strong>20–30%</strong>：<code>--dataset my_data.jsonl 'tag_replay/train.jsonl#2000'</code></td></tr>
+<tr><td>4</td><td><strong>禁止 merge LoRA</strong></td><td>thinker 和 talker 共享同一份底座权重，merge 会改变 talker 读到的东西且多吃 32GB 显存；服务端本来就按请求挂 LoRA</td></tr>
+<tr><td>5</td><td><strong>音频侧（encoder/projector）本版不可训</strong></td><td><code>--freeze_vit --freeze_aligner</code> 必须保持 true；强行训了 <code>to-vllm</code> 也会拒绝导出（拒绝含 <code>modules_to_save</code> 的 adapter）</td></tr>
+</table>
+
+<p><strong>硬件实测</strong>：H100 单卡峰值约 65GB（2048 token 样本、batch 1）；双卡切分后每卡约 34GB。几百条样本用 lr 2e-5~5e-5、1–2 epoch。</p>
+
+<p><strong>回归检查</strong>（官方给了现成工具 <code>tools/regress.py</code>）：起双 LoRA 并排服务（vLLM <code>--enable-lora --lora-modules tag=... mine=...</code>），对 held-out 音频对比<strong>标签率、畸形标签数、错误语言回复数、回复长度、相同回复数</strong>——标签率要贴近原版，畸形标签和错语言必须近零：</p>
+<pre><code>python tools/regress.py --url http://127.0.0.1:8000 --data my_eval.jsonl --base tag --new mine</code></pre>
+
+<h3>12.4 路径 B 的边界：新语言警告</h3>
+<div class="warn">LoRA 只能让模型写出"它已经听得见"的语言；encoder 听不准的语言，LoRA 只会产出"流利但同音错词"的文本（官方希腊语案例：FLEURS WER 59.5%→45.8%，没治本）。训练 projector/encoder 在 ms-swift 里技术上可行（adapter 配置加 <code>"modules_to_save": ["multi_modal_projector"]</code>），但<strong>当前结果无法部署</strong>：to-vllm 拒绝含 modules_to_save 的 adapter，服务端只挂 LoRA 权重。官方计划 v2 后提供音频侧训练与导出路径。Talker 只说各 build 列出的语言；其他语言可给 thinker 配外接 TTS。</div>
+
+<h3>12.5 路径 C：按 DuplexJev 配方自训决策模型</h3>
+<p>如果目标是把话轮判断适配到特定噪声域（车载、客服电话等），复刻 DuplexJev 三阶段配方比微调 Sophon 更对症：</p>
+<ol>
+<li><strong>底座</strong>：Qwen3-ASR-0.6B encoder（冻结）+ Qwen3 小底座语言模型（冻结）+ 可训 connector（MLP 投影）+ rank-16 LoRA——用 patched Ultravox 训练框架；</li>
+<li><strong>阶段一</strong>：目标语言 ASR 语料做内容蒸馏（中文可用 WenetSpeech/GigaSpeech 子集）；</li>
+<li><strong>阶段二</strong>：<strong>用自有对话数据标注 turn state 四类</strong>（说完/没说完/附和/在想）——这是唯一必须自建的数据，schema 就是那道选择题；情绪/场景标签可按需扩展；</li>
+<li><strong>阶段三</strong>：混合训练保内容（内容权重 ×10，决策 ×0.5~1）；</li>
+<li><strong>评测</strong>：held-out 标注集 + eot-bench 风格（300ms 窗口 false cut-off 率）做回归门禁。</li>
+</ol>
+<p>噪声域数据要覆盖目标场景的特有干扰（车载：发动机噪声、音乐背景、多说话人、方言口音）——这正是通用 checkpoint 最弱、自训收益最大的地方。标注量参考：Easy-Turn 规模（万级标注片段）即可起步。</p>
+<div class="note"><strong>许可红利</strong>：32B 大脑主体 Apache-2.0，但 -Emotion-/-Para 系 connector 权重因 ESD（research-only）为 CC BY-NC 4.0——商用场景走路径 C 自训 connector 可绕开这个许可雷区，是自训的额外收益。</div>
+
+<h3>12.6 路径 D：强化学习（明确边界）</h3>
+<p>官方公开配方<strong>没有 RL</strong>，三阶段全是监督学习。RL 化的可行方向：用 Full-Duplex-Bench 风格的模拟器对"接话时机正确率"发 reward（打断率/抢答率/附和误判率可从日志自动统计），对 LLM 部分做 GRPO。风险：奖励 hacking（模型学会"永远不接话"来做到零打断）。<strong>建议顺序：先跑通监督微调 + 用真实日志做离线评测，积累几万条在线交互数据后再评估 RL 的投入产出</strong>。</p>
+
+<h3>12.7 最小行动方案</h3>
+<ol>
+<li>先拿 200~500 条目标场景对话（文本即可起步，音频更佳）按官方 jsonl 格式整理；</li>
+<li>单卡跑路径 B 验证人格/话术适配；</li>
+<li>并行启动 turn state 四类标注（路径 C 的核心资产，标注一次两种路径都能用）；</li>
+<li>用 <code>tools/regress.py</code> + 自建 held-out 集做回归门禁。</li>
+</ol>
+
+<h2 id="s10"><span class="secno">13</span>性能与基准数据</h2>
+<table>
+<tr><th>Benchmark</th><th>32B</th><th>4B</th><th>对比</th></tr>
+<tr><td>VoiceBench</td><td><strong>82.8</strong></td><td>62.4</td><td>开源全双工第一，与 GPT-4o-mini-Audio 持平</td></tr>
+<tr><td>Big Bench Audio</td><td><strong>81.8%</strong></td><td>44.3%</td><td>开源全双工第一</td></tr>
+<tr><td>副语言理解</td><td><strong>48.6</strong></td><td>—</td><td>Gemini 3.8 Flash 46.9 · Qwen3-Omni 44.6</td></tr>
+<tr><td>Full-Duplex-Bench v1.0（4 任务均分）</td><td>94.0</td><td>Tag 94.3 · E2E 92.3 · Flash 87.7</td><td>4B 对话技能基本不掉</td></tr>
+<tr><td>NVV-SuperBench（表现力）</td><td>Tag：zh 0.86 / en 0.80</td><td>—</td><td>Flash 0.63/0.77 · E2E 0.75/0.85</td></tr>
+<tr><td>工具调用 Pass@1（FDB v3）</td><td>48%</td><td>—</td><td>Grok 43%，回应率 100%</td></tr>
+</table>
+<p class="meta">口径说明：除注明外均为官方自测（单张 H100 80GB，用户 10s 内陆续到达）；VoiceBench 用官方评测器 + gpt-4o-mini 裁判；Big Bench Audio 由 GPT-4.1 判转写。自测不等于假，但也不等于你机器上的数字——正式选型前务必用目标场景真实录音复测。</p>
+
+<h2 id="s11"><span class="secno">14</span>创新点总览与副语言决策机制</h2>
+<p>本章回答两个问题：这个工程的创新点到底是什么；以及"情绪、语调"这些策略<strong>具体如何影响决策</strong>。</p>
+
+<h3>14.1 创新点总览</h3>
+<table>
+<tr><th>层面</th><th>创新点</th><th>与传统方案的差异</th></tr>
+<tr><td rowspan="2">架构</td><td><strong>共享大脑 + 可换发声层</strong>：三种 build 只在"文字→声音"这最后一段分叉，听说/判断/写回复完全共享</td><td>传统 ASR/LLM/TTS 三段各自独立，语气信息在转写环节就丢失</td></tr>
+<tr><td><strong>框架/插件分层</strong>：vLLM-Omni 管会话、fence、能量 VAD；duplex.py 插件管全部对话语义（约 1085 行单文件收敛）</td><td>语义与基础设施解耦，对话策略可整体替换</td></tr>
+<tr><td rowspan="3">算法</td><td><strong>话轮判断 = 四选项单 token 选择题 + logprobs</strong>：max_tokens=1 读出 P(finished)，92ms 完成；选项顺序按请求哈希随机排列防位置偏置</td><td>传统 endpointing 是固定静音阈值；能量 VAD 只答"何时问"，语义模型答"该不该接"</td></tr>
+<tr><td><strong>检查点 × 阈值衰减</strong>：0.2s/0.95 → 2.0s/0.25，把"人类等待耐心"编码成时间-置信度退火曲线</td><td>单一阈值要么抢答要么迟钝</td></tr>
+<tr><td><strong>副语言直接进决策输入</strong>：话轮问题和回复生成吃的都是 &lt;|audio|&gt; 原始音频，不是转写文本（见 11.2）</td><td>情绪/犹豫/讽刺在 ASR 转写环节就会丢失</td></tr>
+<tr><td rowspan="3">机制</td><td><strong>投机起草 + gen 计数器</strong>：静音 0.05s 即起草，用户一开口 gen+1 作废所有在途判决——乐观并发模式</td><td>无需加锁排队</td></tr>
+<tr><td><strong>"已听到才入历史"不变量</strong>：打断按播放进度估算截断，历史永远等于双方真实听到/说出的内容</td><td>传统方案要么留全文本（不诚实）要么全丢（丢信息）</td></tr>
+<tr><td><strong>三级恢复</strong>（merge&amp;abort / BC_RESUME / 新话轮）："抢答错了""用户只是附和"是状态机一等公民</td><td>传统方案把打断一律当新请求</td></tr>
+<tr><td>表示</td><td>assistant 历史优先存<strong>音频本身</strong>，语气跨轮保留；按用户侧秒数（120s）而非 token 裁剪</td><td>token 预算对语音模型不贴谱</td></tr>
+</table>
+
+<h3>14.2 副语言如何影响决策：一条输入，四条路径</h3>
+<p>关键认知：<strong>DuplexJev（大脑的听觉部分）的输入永远是原始音频，不是文字</strong>——语调信息不需要任何专门管道，它天然包含在每一次 forward pass 里，在四条路径上分别起作用：</p>
+
+<figure>
+<svg viewBox="0 0 920 640" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="语调影响决策四路径">
+<rect x="10" y="10" width="900" height="620" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="36" text-anchor="middle" font-size="15" font-weight="600" fill="#1f3a5f">情绪/语调 → 决策：四条路径，一条输入</text>
+<text x="460" y="58" text-anchor="middle" font-size="12" fill="#57606a">大脑的输入永远是原始音频，不是转写文本——语调不需要专门管道，天然流经每次 forward</text>
+
+<g>
+<rect x="80" y="80" width="200" height="56" rx="10" fill="#ddf4ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="180" y="104" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">用户原始音频</text>
+<text x="180" y="124" text-anchor="middle" font-size="11" fill="#57606a">情绪·重音·犹豫·笑声·叹气</text>
+</g>
+<g>
+<rect x="440" y="80" width="360" height="56" rx="10" fill="#dafbe1" stroke="#2da44e" stroke-width="0.5"/>
+<text x="620" y="104" text-anchor="middle" font-size="13" font-weight="600" fill="#116329">stage 0 大脑（DuplexJev）</text>
+<text x="620" y="124" text-anchor="middle" font-size="11" fill="#57606a">同一个模型听音、判断、写回复——语调内嵌于所有输出</text>
+</g>
+<line x1="280" y1="108" x2="436" y2="108" stroke="#57606a" stroke-width="1.5"/>
+
+<line x1="620" y1="136" x2="170" y2="178" stroke="#2da44e" stroke-width="1.2"/>
+<line x1="620" y1="136" x2="390" y2="178" stroke="#2da44e" stroke-width="1.2"/>
+<line x1="620" y1="136" x2="620" y2="178" stroke="#2da44e" stroke-width="1.2"/>
+<line x1="620" y1="136" x2="800" y2="178" stroke="#2da44e" stroke-width="1.2"/>
+
+<g>
+<rect x="40" y="182" width="270" height="180" rx="8" fill="#f0f6ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="175" y="206" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">路径 A：话轮状态机</text>
+<text x="175" y="228" text-anchor="middle" font-size="11" fill="#24292f">犹豫拖长音「嗯……」→ D(还在想)</text>
+<text x="175" y="246" text-anchor="middle" font-size="11" fill="#24292f">→ P(finished) 低 → 不接话</text>
+<text x="175" y="270" text-anchor="middle" font-size="11" fill="#24292f">说话中短促「嗯」+ &lt;1.5s</text>
+<text x="175" y="288" text-anchor="middle" font-size="11" fill="#24292f">→ C(附和) → BC_RESUME 续讲</text>
+<text x="175" y="312" text-anchor="middle" font-size="11" fill="#0969da">语调直接改写 P(finished) 分布</text>
+<text x="175" y="330" text-anchor="middle" font-size="11" fill="#0969da">= 决定谁在何时取得说话权</text>
+</g>
+<g>
+<rect x="330" y="182" width="270" height="180" rx="8" fill="#fff8e6" stroke="#d4a72c" stroke-width="0.5"/>
+<text x="465" y="206" text-anchor="middle" font-size="13" font-weight="600" fill="#9a6700">路径 B：回复生成</text>
+<text x="465" y="228" text-anchor="middle" font-size="11" fill="#24292f">回复请求同样以 &lt;|audio|&gt; 进模型</text>
+<text x="465" y="246" text-anchor="middle" font-size="11" fill="#24292f">系统提示词要求「注意用户的情绪」</text>
+<text x="465" y="270" text-anchor="middle" font-size="11" fill="#24292f">听出沮丧 → 回复带 [sigh]、放慢</text>
+<text x="465" y="288" text-anchor="middle" font-size="11" fill="#24292f">听出高兴 → 回复带 [laughter]</text>
+<text x="465" y="312" text-anchor="middle" font-size="11" fill="#9a6700">情绪感知 → 输出侧的声音标签</text>
+<text x="465" y="330" text-anchor="middle" font-size="11" fill="#9a6700">标签不被念出、由语音层演绎</text>
+</g>
+<g>
+<rect x="620" y="182" width="260" height="180" rx="8" fill="#fff8e6" stroke="#d4a72c" stroke-width="0.5"/>
+<text x="750" y="206" text-anchor="middle" font-size="13" font-weight="600" fill="#9a6700">路径 C：跨轮记忆</text>
+<text x="750" y="228" text-anchor="middle" font-size="11" fill="#24292f">assistant 历史优先存真实播出音频</text>
+<text x="750" y="246" text-anchor="middle" font-size="11" fill="#24292f">→ 下一轮以 &lt;|audio|&gt; 进 prompt</text>
+<text x="750" y="270" text-anchor="middle" font-size="11" fill="#24292f">上一轮笑了/叹气了</text>
+<text x="750" y="288" text-anchor="middle" font-size="11" fill="#24292f">本轮能「听出」延续情绪</text>
+<text x="750" y="312" text-anchor="middle" font-size="11" fill="#9a6700">记忆从纯文本升级为带语气的记忆</text>
+<text x="750" y="330" text-anchor="middle" font-size="11" fill="#9a6700">打断降级为截断文本+标记</text>
+</g>
+
+<g>
+<rect x="40" y="388" width="840" height="110" rx="8" fill="#ddf4ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="460" y="412" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">路径 D：语音演绎层（三种 build 分叉点，只执行不决策）</text>
+<text x="460" y="436" text-anchor="middle" font-size="11.5" fill="#24292f">Tag：表现力语音模型把 [laughter]/[sigh]/&lt;strong&gt; 演出来 · Flash：轻量模型每 80ms 一帧演</text>
+<text x="460" y="456" text-anchor="middle" font-size="11.5" fill="#24292f">E2E：350M talker 读标签直接把笑/叹气作为同一声学流的一部分生成</text>
+<text x="460" y="480" text-anchor="middle" font-size="11.5" fill="#0969da">声音克隆后 barge-in/附和/笑声仍然工作——语气表现与话轮决策互不干扰（感知与表达解耦）</text>
+</g>
+
+<g>
+<rect x="40" y="520" width="840" height="76" rx="8" fill="#dafbe1" stroke="#2da44e" stroke-width="0.5"/>
+<text x="460" y="544" text-anchor="middle" font-size="11.5" fill="#116329">副语言理解 48.6 分（超 Gemini 3.8 Flash 46.9、Qwen3-Omni 44.6）的来源：情绪/重音/讽刺/笑声/叹气 "straight from your voice"——</text>
+<text x="460" y="566" text-anchor="middle" font-size="11.5" fill="#116329">不是先转文字再分析情绪，而是音频直接进决策，路径 A+B+C 三处同时消费语调信号。</text>
+<text x="460" y="588" text-anchor="middle" font-size="11.5" font-weight="600" fill="#116329">一句话：架构上没有给语调修专门的路，反而让所有路都天然通着语调。</text>
+</g>
+</svg>
+<figcaption>图 6 · 副语言影响决策的四条路径（依据源码：话轮模板 TPL、回复请求构造、history a_audio 结构、三 build 发声层）</figcaption>
+</figure>
+
+<h3>14.3 语调改变决策的具体例子（路径 A 详表）</h3>
+<p>话轮问题的上下文构造是 <code>用户说：&lt;|audio|&gt;</code>——送进 stage 0 判断的是原始音频，不是文字。同样是"用户停下来了"，语调不同，P(finished) 完全不同：</p>
+<table>
+<tr><th>听到的声音</th><th>大脑的判断</th><th>决策后果</th></tr>
+<tr><td>语调干脆、降调收尾</td><td>P(A 说完) 高</td><td>≥0.95 时 0.2s 就接话</td></tr>
+<tr><td>拖长的「嗯……」「那个……」犹豫声</td><td>P(D 还在想) 高</td><td>即使静音到检查点也不接话，继续等</td></tr>
+<tr><td>说话中一个短促的「嗯」「对」</td><td>P(C 附和) ≥ 0.5 且 &gt; P(说完)</td><td><strong>不当新请求处理</strong>，触发 BC_RESUME 续讲被切断的回复</td></tr>
+<tr><td>生气地打断</td><td>P(finished) 高 + 情绪信号进路径 B</td><td>回复的语气和内容都会变</td></tr>
+</table>
+<p>传统链路里 ASR 一转写，犹豫声变成"嗯"两个字，语调信息当场蒸发——后端再怎么分析也只能看到文字。这就是"情绪不是被识别出来再上报，它就是概率分布的一部分"的含义：副语言 48.6 分能直接转化为对话体验的原因即在于此。</p>
+<p>路径 B 的佐证：flash 版 duplex.py 删掉了 tag 版的 SYS 提示词常量（写标签 LoRA tl2 的训练提示词），标签产出会显著减少——"情绪→声音标签"是训练出来的直接映射，而非外挂的情感分类器。</p>
+
+<h2 id="s12"><span class="secno">15</span>DuplexJev 架构与训练原理</h2>
+<p>第 14 章讲了语调"在哪些路径上起作用"，本章回答更底层的问题：<strong>模型凭什么能听出语调，并把它变成决策概率</strong>。依据 DuplexJev 仓库（github.com/adventists-ai/duplexjev）README 的一手材料整理。核心结论：<strong>"听懂语调"靠输入设计 + 训练解决；"何时接话、如何恢复"等决策策略是纯工程代码——模型提供概率，策略消费概率</strong>。</p>
+
+<h3>15.1 绕过文字瓶颈的架构</h3>
+<p>传统链路为什么丢语气？因为 ASR 解码成文字那一步是<strong>有损压缩</strong>：encoder 的隐状态里本就包含韵律、情绪、犹豫等信息（它们是识别文字的辅助声学特征），但解码只保留"说了什么字"，其余全部丢弃。DuplexJev 的做法是<strong>不解码，直接把隐状态投影进 LLM</strong>：</p>
+
+<figure>
+<svg viewBox="0 0 920 700" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DuplexJev 架构与训练原理">
+<rect x="10" y="10" width="900" height="680" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="36" text-anchor="middle" font-size="15" font-weight="600" fill="#1f3a5f">DuplexJev：绕过文字瓶颈的音频原生决策架构</text>
+<text x="460" y="58" text-anchor="middle" font-size="12" fill="#57606a">ASR 隐状态直接投影进 LLM——韵律/情绪不经过文字，无解码损失</text>
+
+<g>
+<rect x="80" y="84" width="160" height="64" rx="10" fill="#ddf4ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="160" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">原始音频</text>
+<text x="160" y="128" text-anchor="middle" font-size="11" fill="#57606a">mel 帧 · 30s chunk</text>
+</g>
+<line x1="240" y1="116" x2="330" y2="116" stroke="#57606a" stroke-width="1.5"/>
+
+<g>
+<rect x="334" y="84" width="220" height="64" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1"/>
+<text x="444" y="104" text-anchor="middle" font-size="13" font-weight="600" fill="#444441">Qwen3-ASR-0.6B</text>
+<text x="444" y="120" text-anchor="middle" font-size="11" fill="#5F5E5A">encoder · 冻结</text>
+<text x="444" y="136" text-anchor="middle" font-size="11" fill="#5F5E5A">最后层 hidden states</text>
+</g>
+<line x1="554" y1="116" x2="640" y2="116" stroke="#57606a" stroke-width="1.5"/>
+
+<g>
+<rect x="644" y="84" width="160" height="64" rx="10" fill="#eaf3de" stroke="#3b6d11" stroke-width="1.2"/>
+<text x="724" y="104" text-anchor="middle" font-size="13" font-weight="600" fill="#27500A">connector</text>
+<text x="724" y="120" text-anchor="middle" font-size="11" fill="#3B6D11">可训练（唯一）</text>
+<text x="724" y="136" text-anchor="middle" font-size="11" fill="#3B6D11">2帧叠1 · MLP投影</text>
+</g>
+
+<line x1="724" y1="148" x2="600" y2="182" stroke="#3b6d11" stroke-width="1.5"/>
+<text x="700" y="170" text-anchor="middle" font-size="11" fill="#3B6D11">6.5 音频 token/秒</text>
+
+<g>
+<rect x="240" y="186" width="360" height="70" rx="10" fill="#f1efe8" stroke="#888780" stroke-width="1"/>
+<text x="420" y="208" text-anchor="middle" font-size="13" font-weight="600" fill="#444441">冻结 LLM（32B = Qwen3-VL-32B 语言模型 / 4B = Qwen3-4B）</text>
+<text x="420" y="226" text-anchor="middle" font-size="11" fill="#5F5E5A">Turn 模型额外 + rank-16 LoRA；音频 token + 状态 + N 个 typed 问题，ONE forward</text>
+<text x="420" y="244" text-anchor="middle" font-size="11" fill="#5F5E5A">prefix 共享 · 问题打包 · block-diagonal mask</text>
+</g>
+
+<line x1="420" y1="256" x2="420" y2="286" stroke="#57606a" stroke-width="1.5"/>
+
+<g>
+<rect x="240" y="290" width="360" height="64" rx="10" fill="#faeeda" stroke="#ba7517" stroke-width="1"/>
+<text x="420" y="312" text-anchor="middle" font-size="13" font-weight="600" fill="#633806">单 token readout · 0 步解码</text>
+<text x="420" y="330" text-anchor="middle" font-size="11" fill="#854F0B">next-token softmax 限制在选项字母上 → p(A|q1)…p(D|qN)</text>
+<text x="420" y="348" text-anchor="middle" font-size="11" fill="#854F0B">输出恒合法，max p 即置信度；10 个决策 92ms（级联方案需 1,978ms）</text>
+</g>
+
+<g>
+<rect x="40" y="400" width="840" height="128" rx="10" fill="#f0f6ff" stroke="#54aeff" stroke-width="0.5"/>
+<text x="460" y="422" text-anchor="middle" font-size="13" font-weight="600" fill="#0969da">三阶段训练（Ultravox patched 训练框架）</text>
+<text x="460" y="444" text-anchor="middle" font-size="11.5" fill="#24292f">① 内容蒸馏：Ultravox v0.6 混合语料（WenetSpeech/GigaSpeech/Common Voice/CoVoST2/LibriSpeech/MLS/MUSAN…）</text>
+<text x="460" y="462" text-anchor="middle" font-size="11.5" fill="#24292f">② 决策交叉熵（readout 位置的单个选项字母）：turn state（Easy-Turn 四类）· emotion（ESD/CREMA-D 四分类）· gender（AISHELL-1/LibriSpeech）</text>
+<text x="460" y="480" text-anchor="middle" font-size="11.5" fill="#24292f">③ 混合训练：4,000 步 · lr 1e-4 · 内容权重×10 · gender/emotion×0.5 —— 保内容理解的同时学会决策</text>
+<text x="460" y="506" text-anchor="middle" font-size="11.5" fill="#0969da">Para 系新增问题：laughter / 非语言声 / 说话风格（耳语/喊叫）/ 重读词定位 / 说话人同一性</text>
+</g>
+
+<g>
+<rect x="40" y="552" width="840" height="112" rx="10" fill="#faece7" stroke="#993c1d" stroke-width="0.5"/>
+<text x="460" y="574" text-anchor="middle" font-size="13" font-weight="600" fill="#712B13">学到的 vs 工程的：边界必须分清</text>
+<text x="460" y="596" text-anchor="middle" font-size="11.5" fill="#24292f">学习侧（训练+输入设计）：音频→语义映射（connector）· 选项字母 readout · 写声音标签（LoRA tl2）· 回复生成</text>
+<text x="460" y="614" text-anchor="middle" font-size="11.5" fill="#24292f">工程侧（纯代码消费概率）：检查点×阈值衰减 · merge&amp;abort / BC_RESUME 状态机 · 投机起草 · 历史截断</text>
+<text x="460" y="640" text-anchor="middle" font-size="11.5" fill="#993C1D">选项顺序 24 种排列实测：仅 3.3% 答案改变且集中在低置信样本；p ≥ 0.8 时仅 0.01% —— 高置信时概率稳定可依赖</text>
+</g>
+</svg>
+<figcaption>图 7 · DuplexJev 架构与三阶段训练（依据 DuplexJev 仓库 README）</figcaption>
+</figure>
+
+<h3>15.2 为什么"冻结 encoder + 冻结 LLM + 只训 connector"就够</h3>
+<p>原理上是<strong>两个空间之间缺一座桥</strong>的问题：</p>
+<ul>
+<li><strong>Qwen3-ASR-0.6B encoder（冻结）</strong>：它为了做语音识别，隐状态里必须同时编码"说了什么字"和"怎么说的"——韵律、能量、停顿这些声学特征是它识别文字的辅助信息，本来就在最后层隐状态里。传统链路的浪费在于：解码成文字只取走了前者，把后者扔了。</li>
+<li><strong>Qwen3-VL-32B 语言模型（冻结）</strong>：已经懂语言、懂问答、懂"问题+选项"格式。</li>
+<li><strong>connector（唯一可训练 + Turn 模型 rank-16 LoRA）</strong>：一个 MLP，只学"把音频隐状态投影到 LLM 嵌入空间"。训练量极小，但桥一通，冻结 LLM 的全部语言能力就直接作用于音频表示。</li>
+</ul>
+<p>这就是"输入设计"那半个答案：<strong>韵律信息不走文字管道，从隐状态直通 LLM</strong>。</p>
+
+<h3>15.3 三阶段训练配方</h3>
+<table>
+<tr><th>阶段</th><th>数据</th><th>目标</th><th>作用</th></tr>
+<tr><td>① 内容蒸馏</td><td>Ultravox v0.6 混合语料（WenetSpeech、GigaSpeech、Common Voice、CoVoST2、LibriSpeech、MUSAN…）</td><td>transcript distillation</td><td>教会 connector"投影要保内容"——桥不能只传情绪丢了语义</td></tr>
+<tr><td>② 决策交叉熵</td><td>turn state：Easy-Turn 四类（complete/incomplete/backchannel/wait）；emotion：ESD+CREMA-D 四分类（neutral/happy/angry/sad）；gender：AISHELL-1/LibriSpeech</td><td><strong>readout 位置单个选项字母的交叉熵</strong></td><td>把"听出语调→选对字母"直接训练成模型行为</td></tr>
+<tr><td>③ 混合训练</td><td>①+② 混合，4,000 步，lr 1e-4，内容权重×10、gender/emotion×0.5</td><td>联合优化</td><td>防止学决策时遗忘内容理解</td></tr>
+</table>
+<p>两个关键细节：</p>
+<ul>
+<li><strong>问题措辞是训练契约</strong>：README 明确警告 "these are the wordings the models were trained on; always keep a 'none' option"——运行时声明的问题必须匹配训练措辞。这就是 Sophon 源码里 TPL 模板逐字保留的原因；也是"新增一种决策 = 运行时一行文本"（声明问题+选项）而无需重训生成逻辑的原因。</li>
+<li><strong>情绪是分类题不是开放理解</strong>：emotion 在 ESD/CREMA-D 这类表演性语音库上训成四分类，真实场景的复杂情绪是泛化结果——副语言 48.6 分很强，但要知道能力边界。许可提醒：ESD 为 research-only，因此 -Emotion-/-Para- 的 connector 权重为 <strong>CC BY-NC 4.0</strong>，商用前需单独核对（32B 大脑主体仍为 Apache-2.0）。</li>
+</ul>
+
+<h3>15.4 P(finished) 的推理机制与 92ms</h3>
+<p>推理链路：<code>[音频 token] + [助手刚才说的话] + [问题] + [选项A..D]</code> 一次 forward，<strong>不做任何解码生成</strong>——直接在选项字母位置读 next-token softmax，归一到四个字母得 p(A..D)。92ms 的来源：prefix（音频）编码一次共享、多个问题打包进同一行用 block-diagonal mask 隔离、vLLM prefix cache 复用音频前缀、0 步解码。对比级联方案（ASR 411ms + LLM 生成 JSON 1,567ms），快约 20 倍的根本原因是<strong>把生成问题改造成了读出问题</strong>。</p>
+<p>选项顺序 24 种排列实测：答案仅在 3.3% 的排列中改变，且集中在不确定样本；置信度 ≥0.8 时变化率 0.01%——这给了工程侧"阈值决策"统计依据（Sophon 才敢在检查点上挂 0.95→0.25 的衰减阈值）。</p>
+
+<h3>15.5 学到的 vs 工程的：完整能力边界表</h3>
+<table>
+<tr><th>归属</th><th>能力</th><th>实现方式</th></tr>
+<tr><td rowspan="3">学习侧（训练 + 输入设计）</td><td>听出语调/情绪/犹豫/重读</td><td>ASR 隐状态直通 + 决策交叉熵训练</td></tr>
+<tr><td>该笑/该叹气/带重音的回复</td><td>写标签 LoRA（tl2）+ 系统提示词契约</td></tr>
+<tr><td>回复内容本身</td><td>大脑 LLM 的生成能力</td></tr>
+<tr><td rowspan="3">工程侧（纯代码消费概率）</td><td>何时问、阈值多高、静音几秒兜底</td><td>duplex.py 检查点×阈值衰减</td></tr>
+<tr><td>抢答恢复、附和续讲、草稿作废</td><td>状态机 + gen 计数器</td></tr>
+<tr><td>历史截断到"已听到"</td><td>last_play 播放进度估算</td></tr>
+</table>
+<p>准确表述：<strong>感知与概率是训练出来的（输入设计决定信息不丢，训练配方决定映射正确）；策略与恢复是代码写出来的（消费概率做决策）。Sophon 的完整能力 = 学习侧提供"概率神谕" + 工程侧提供"对话策略"。</strong></p>
+
+<h3>15.6 对端侧路线的参考价值</h3>
+<div class="note"><strong>DuplexJev-4B = Qwen3-4B + Qwen3-ASR-0.6B encoder，约 10GB，单个 turn 问题 40–80ms，Smart Turn 92.9</strong>。"冻结小底座 + 只训 connector/LoRA"这条路已被验证能在 4B 规模跑出可用水平——与 Qwen3-0.6B 端侧评估属同一家族思路。若车机端要升级 endpointing，"Qwen3-ASR-0.6B encoder + Qwen3 小底座 + Easy-Turn 式四分类训练"是可直接对标落地的技术路线，比端侧跑完整 S2S 现实得多。</div>
+
+<h2 id="s13"><span class="secno">16</span>工程借鉴（P0/P1/P2）</h2>
+<p>面向"ASR + NLU 网关 + TTS"式传统链路（如车载 NLU）的对照借鉴：</p>
+<table>
+<tr><th>级别</th><th>机制</th><th>映射与理由</th></tr>
+<tr><td class="p0">P0</td><td><strong>committed history ≡ 用户真实听到的内容</strong>这条不变量 + <code>last_play{t0,dur}</code> 播放进度估算（<code>played = now − t0 − 补偿</code>）</td><td>TTS 播报被打断时的上下文截断：比"保留完整已合成文本"更诚实、比"全部丢弃"更保信息；估算而非精确对齐，实现成本极低</td></tr>
+<tr><td class="p0">P0</td><td><code>gen</code> 计数器作废在途判决 + append reservation 15s 超时回滚 + 重发上限 3 次</td><td>同会话幂等/并发控制的乐观失效模式：新事件一到，旧 in-flight 结果一律作废，无需加锁排队</td></tr>
+<tr><td class="p1">P1</td><td>merge &amp; abort（2s 抢答窗口）+ BC_RESUME（附和则续讲）</td><td>"系统抢答"与"用户嗯了一声"是两类完全不同的恢复路径，值得在网关层显式建模，而非统一当新请求处理</td></tr>
+<tr><td class="p1">P1</td><td>检查点 × 阈值衰减 + 单 token logprobs 话轮分类 + PERIODIC 噪声鲁棒模式</td><td>纯 VAD endpointing 的升级路线：能量 VAD 管"何时问"、轻量分类器管"该不该接"；车载噪声环境尤其需要</td></tr>
+<tr><td class="p2">P2</td><td>assistant 侧历史存真实音频、按用户侧秒数（120s）而非 token 裁剪</td><td>文本网关不必存音频，但"按时间预算裁剪历史"的思路对历史上下文持久化有参考价值</td></tr>
+</table>
+<div class="note"><strong>端侧可行性判断</strong>：4B 仍需约 21GB 显存，32B 需 80GB——车机端侧跑 S2S 目前完全不现实。真要在车上做全双工，现实路径是<strong>云端 S2S + 端侧轻量唤醒/打断检测</strong>的混合架构；车载场景优先关注其 Flash build（并发最高、延迟 0.31s）与打断后上下文裁剪机制。</div>
+
+<h2 id="s14"><span class="secno">17</span>术语表</h2>
+<table>
+<tr><th>术语</th><th>全称 / 中文</th><th>含义</th></tr>
+<tr><td>S2S</td><td>Speech-to-Speech，语音到语音</td><td>端到端语音对话架构，跳过"转文字再合成"的中间层（与 seq2seq"序列到序列"是缩写撞车）</td></tr>
+<tr><td>full-duplex</td><td>全双工</td><td>听说同时进行；对应半双工（half-duplex）为一问一答的回合制</td></tr>
+<tr><td>barge-in</td><td>打断 / 抢话</td><td>用户在助手说话期间开口，系统立即停止并处理新输入</td></tr>
+<tr><td>backchannel</td><td>附和语</td><td>"嗯/对/嗯哼"等不构成话轮转移的简短回应</td></tr>
+<tr><td>turn-taking</td><td>话轮判断</td><td>决定对话中谁在何时取得说话权</td></tr>
+<tr><td>VAD</td><td>Voice Activity Detection，语音活动检测</td><td>按能量/噪声底区分"说话"与"静音"，是触发话轮检查的信号源</td></tr>
+<tr><td>副语言</td><td>paralinguistic</td><td>语调、重音、情绪、笑声等非词汇层面的语音信息</td></tr>
+<tr><td>speculative draft</td><td>投机草稿</td><td>话轮未定前预生成的回复，未释放前可随时丢弃，不污染历史</td></tr>
+<tr><td>LoRA</td><td>Low-Rank Adaptation，低秩适配</td><td>只训练少量低秩参数的微调方法，本项目用于改人格/语气/领域知识</td></tr>
+<tr><td>vLLM-Omni</td><td>—</td><td>支持多模态流式服务的推理框架，三种 build 的统一 serving 层</td></tr>
+<tr><td>TensorRT</td><td>—</td><td>NVIDIA 推理加速引擎；[trt] extras 缺失时语音段慢约 3 倍</td></tr>
+<tr><td>MLX</td><td>—</td><td>Apple 芯片上的机器学习框架，Mac 本地运行路线的基础</td></tr>
+<tr><td>AEC</td><td>Acoustic Echo Cancellation，回声消除</td><td>扬声器声音回灌麦克风时的消除，全双工硬件场景必需</td></tr>
+<tr><td>RTF</td><td>Real-Time Factor，实时率</td><td>合成 1 秒音频所需计算时间，&lt;1 才能实时</td></tr>
+<tr><td>首包延迟</td><td>first audio latency</td><td>用户停止说话到收到第一字节音频的时间，语音体验的核心指标</td></tr>
+<tr><td>logprobs</td><td>log probabilities，对数概率</td><td>模型输出 token 的概率分布；本项目用它从单 token 选择题读出 P(finished) 等决策概率</td></tr>
+<tr><td>GPT-Live</td><td>—</td><td>OpenAI 的实时语音会话协议；live/ 网关提供兼容层与 delegation 委派</td></tr>
+<tr><td>fence / epoch / turn_id</td><td>—</td><td>vLLM-Omni 框架的 append 顺序控制三元组，防乱序与重复提交</td></tr>
+<tr><td>connector</td><td>投影层 / 连接器</td><td>把 ASR encoder 隐状态投影到 LLM 嵌入空间的可训练 MLP，DuplexJev 中唯一主要训练部件</td></tr>
+<tr><td>readout</td><td>读出</td><td>在特定 token 位置直接读 next-token softmax 的输出方式，不做自回归解码生成</td></tr>
+<tr><td>distillation</td><td>蒸馏</td><td>让小/轻模型模仿大模型或中间表示的训练方式；本文指 connector 对齐 ASR 转写内容</td></tr>
+<tr><td>cross-entropy</td><td>交叉熵</td><td>分类训练的标准损失函数；决策训练中只在 readout 位置对选项字母计算</td></tr>
+<tr><td>prefix cache</td><td>前缀缓存</td><td>vLLM 复用已编码前缀（音频 token）的机制，多个问题共享同一段音频编码</td></tr>
+<tr><td>block-diagonal mask</td><td>块对角掩码</td><td>把多个问题打包进同一 forward、彼此注意力隔离的掩码方式</td></tr>
+<tr><td>ESD / CREMA-D</td><td>情感语音语料库</td><td>两个表演性情感语音数据集，DuplexJev 情绪四分类的训练来源（research-only 许可）</td></tr>
+<tr><td>Easy-Turn</td><td>—</td><td>话轮状态标注数据集，含 complete/incomplete/backchannel/wait 四类标签</td></tr>
+<tr><td>ms-swift</td><td>—</td><td>魔搭社区的多模态微调框架，官方微调路线的训练引擎（swift sft）</td></tr>
+<tr><td>adapter / LoRA merge</td><td>适配器 / 权重合并</td><td>LoRA 以外挂 adapter 形式服务；merge 指把 LoRA 权重合入底座——本工程明确禁止（thinker/talker 共享底座）</td></tr>
+<tr><td>replay data</td><td>回放数据</td><td>官方 8,797 条带声音标签的合成对话，微调时混入 20–30% 防标签退化</td></tr>
+</table>
+
+<div class="footer">
+整理来源：Sophon-Realtime 仓库 README 与 finetune/README.md（数据截至 2026-11-18/19）+ 核心源码逐行拆解（tag/flash/e2e 三份 plugin/sophon_realtime/duplex.py、live/sophon_live/ 网关四件套、sophon_expressive/engine.py、config/system_prompt.json，本地存档 sophon-src/）+ DuplexJev 仓库 README（第 15 章架构与训练依据）+ 官方 docs/deploy.md 与 tag/config/*.yaml（第 11 章部署配置依据）· 整理日期 2026-11-20 · 本文档为离线整理稿。
+</div>
+
+</body>
+</html>

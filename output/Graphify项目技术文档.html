@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Graphify 项目技术文档 — 知识图谱化的 AI 编程助手 Skill</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; line-height: 1.75; color: #24292f; background: #ffffff; max-width: 980px; margin: 0 auto; padding: 40px 32px 80px; font-size: 15px; }
+  h1 { font-size: 26px; margin: 8px 0 4px; color: #1a1a1a; }
+  h2 { font-size: 20px; margin: 44px 0 14px; padding-bottom: 8px; border-bottom: 2px solid #e1e4e8; color: #1f3a5f; }
+  h2 .secno { color: #0969da; margin-right: 8px; font-family: Consolas, monospace; }
+  h3 { font-size: 16px; margin: 26px 0 10px; color: #1f3a5f; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0 10px 24px; }
+  li { margin: 4px 0; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 13px; background: #f0f2f5; padding: 1px 5px; border-radius: 4px; color: #b35900; }
+  pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 12px 0; font-size: 13px; line-height: 1.6; }
+  pre code { background: none; padding: 0; color: #24292f; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13.5px; }
+  th { background: #1f3a5f; color: #fff; text-align: left; padding: 8px 12px; font-weight: 500; }
+  td { border: 1px solid #d0d7de; padding: 7px 12px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f6f8fa; }
+  .meta { color: #57606a; font-size: 13px; margin-bottom: 28px; }
+  .meta strong { color: #24292f; }
+  .toc { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 10px; padding: 18px 24px; margin: 20px 0; columns: 2; column-gap: 40px; }
+  .toc a { color: #0969da; text-decoration: none; display: block; margin: 3px 0; font-size: 13.5px; }
+  .toc a:hover { text-decoration: underline; }
+  .toc .toc-title { column-span: all; font-weight: 600; margin-bottom: 8px; color: #1f3a5f; font-size: 15px; }
+  .note { border-left: 4px solid #0969da; background: #f0f6ff; padding: 10px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 13.5px; }
+  .warn { border-left: 4px solid #d29922; background: #fff8e6; padding: 10px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; font-size: 13.5px; }
+  .p0 { color: #cf222e; font-weight: 600; }
+  .p1 { color: #bf8700; font-weight: 600; }
+  .p2 { color: #0969da; font-weight: 600; }
+  .tag { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 10px; margin-right: 4px; font-weight: 500; }
+  .tag-extracted { background: #dafbe1; color: #116329; border: 1px solid #2da44e; }
+  .tag-inferred { background: #fff8e6; color: #9a6700; border: 1px solid #d4a72c; }
+  .tag-ambiguous { background: #ffebe9; color: #cf222e; border: 1px solid #ff818266; }
+  figure { margin: 18px 0; text-align: center; }
+  figcaption { font-size: 12.5px; color: #57606a; margin-top: 6px; }
+  .fig-plain { font-size: 13px; color: #57606a; background: #f6f8fa; border: 1px dashed #d0d7de; border-radius: 8px; padding: 12px 16px; overflow-x: auto; }
+  a { color: #0969da; }
+  .footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid #d0d7de; color: #57606a; font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<h1>Graphify 项目技术文档</h1>
+<div class="meta">
+<strong>Graphify</strong> — 把任意代码库（含文档、SQL Schema、配置、PDF、音视频）变成可查询的知识图谱，供 AI 编程助手通过 <code>/graphify</code> 使用。<br>
+仓库：<a href="https://github.com/Graphify-Labs/graphify">github.com/Graphify-Labs/graphify</a> · 版本 <strong>0.9.113</strong>（v8 分支，2026-11-19）· Python ≥ 3.11 · Apache-2.0（保留原 MIT 文本） · PyPI 包名 <code>graphifyy</code>（双 y）<br>
+本文档基于仓库 README 与 ARCHITECTURE.md 整理，整理日期 2026-11-20。
+</div>
+
+<div class="toc">
+<div class="toc-title">目录</div>
+<a href="#s1">1. 项目定位：是什么 / 不是什么</a>
+<a href="#s2">2. 快速上手</a>
+<a href="#s3">3. 核心数据流水线（架构）</a>
+<a href="#s4">4. graph.json：schema 与方向语义</a>
+<a href="#s5">5. 多语言抽取策略</a>
+<a href="#s6">6. Skill 集成矩阵（20+ 平台）</a>
+<a href="#s7">7. 输出产物</a>
+<a href="#s8">8. 配置参考（.graphifyrc / 环境变量 / ignore）</a>
+<a href="#s9">9. 安全与隐私设计</a>
+<a href="#s10">10. 基准测试（Benchmarks）</a>
+<a href="#s11">11. 采纳路径建议（P0/P1/P2）</a>
+<a href="#s12">12. 术语表</a>
+</div>
+
+<h2 id="s1"><span class="secno">1</span>项目定位：是什么 / 不是什么</h2>
+<p>Graphify 由 Claude Code skill 编排、Python library 实现（library 也可独立使用）。它把整个项目（代码、文档、PDF、图片、音视频）映射成一张<strong>真实可遍历的知识图谱</strong>，让 AI 助手"查询图谱"而不是反复 grep / 读文件，从而大幅降低 agent 的 token 消耗（官方宣称 Graphify Cloud 可省 80%）。</p>
+
+<table>
+<tr><th>维度</th><th>是</th><th>不是</th></tr>
+<tr><td>检索方式</td><td>图遍历（query / path / explain），每条边有解释</td><td>不是向量检索：no embeddings、no vector store</td></tr>
+<tr><td>代码解析</td><td>tree-sitter AST，本地确定性解析，无 LLM 参与</td><td>不是 LLM 猜测式代码理解</td></tr>
+<tr><td>覆盖范围</td><td>约 40 种语言的跨文件关系（calls/imports/inherits/mixes_in）+ 文档/媒体</td><td>不只是代码索引工具</td></tr>
+<tr><td>交付形态</td><td>本地 CLI + <code>/graphify</code> skill + MCP server + Cloud 服务</td><td>不是 SaaS-only（本地优先，code-only 可完全离线）</td></tr>
+</table>
+
+<div class="note"><strong>三大卖点（README 原文）</strong>：① Code maps for free, fully local — 代码解析不出本机；② Every edge is explained — 每条边带 <code>EXTRACTED / INFERRED</code> 置信标签；③ Not a vector index — 真图遍历，可问答、可追踪路径、可解释概念。</div>
+
+<h2 id="s2"><span class="secno">2</span>快速上手</h2>
+<pre><code># 安装（需 Python 3.11+，uv 或 pipx；PyPI 包名 graphifyy 双 y）
+uv tool install graphifyy        # 或 pipx install graphifyy
+graphify install                 # 自动检测你的 AI 助手并注册 skill
+
+# 在 AI 助手中（Claude Code / CodeBuddy / Cursor / Codex / Gemini CLI）
+/graphify .                      # 为当前目录建图</code></pre>
+
+<p>运行后生成三个产物（输出目录 <code>graphify-out/</code>）：</p>
+<table>
+<tr><th>文件</th><th>用途</th></tr>
+<tr><td><code>graph.html</code></td><td>浏览器打开的力导向交互图谱：点击节点、过滤、搜索</td></tr>
+<tr><td><code>GRAPH_REPORT.md</code></td><td>摘要报告：核心概念、意外连接、建议问题</td></tr>
+<tr><td><code>graph.json</code></td><td>完整图谱数据，可随时查询而无需重读文件</td></tr>
+</table>
+
+<h3>常用命令速查</h3>
+<table>
+<tr><th>命令</th><th>作用</th></tr>
+<tr><td><code>/graphify .</code></td><td>为当前目录建图</td></tr>
+<tr><td><code>/graphify ./docs --update</code></td><td>只重抽取变更文件（增量）</td></tr>
+<tr><td><code>/graphify . --cluster-only [--resolution 1.5]</code></td><td>只重跑聚类（可调社区粒度）</td></tr>
+<tr><td><code>/graphify . --no-viz</code></td><td>跳过 HTML，只出 report + JSON</td></tr>
+<tr><td><code>/graphify . --wiki</code></td><td>从图谱生成 Markdown wiki（每个社区一篇 + index.md）</td></tr>
+<tr><td><code>graphify export callflow-html</code></td><td>导出 Mermaid 架构/调用流 HTML</td></tr>
+<tr><td><code>graphify query "..."</code></td><td>自然语言提问，返回局部子图</td></tr>
+<tr><td><code>graphify path "A" "B"</code></td><td>追踪两个节点间最短路径</td></tr>
+<tr><td><code>graphify explain "X"</code></td><td>解释单个概念（连接数、来源、社区）</td></tr>
+<tr><td><code>/graphify add &lt;url&gt;</code></td><td>抓取论文/YouTube 视频转写并入图</td></tr>
+<tr><td><code>graphify hook install</code></td><td>commit / checkout 时自动重建</td></tr>
+<tr><td><code>graphify prs [--triage|--conflicts]</code></td><td>PR 面板：CI 状态、评审队列排序、共享社区的合并顺序风险</td></tr>
+</table>
+
+<h2 id="s3"><span class="secno">3</span>核心数据流水线（架构）</h2>
+<p>各阶段独立成模块，中间用 plain Python dict 与 NetworkX 图通信，尽量减少共享状态：</p>
+
+<figure>
+<svg viewBox="0 0 920 400" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="graphify 数据流水线">
+<defs>
+<marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M2 1L8 5L2 9" fill="none" stroke="#57606a" stroke-width="1.5" stroke-linecap="round"/>
+</marker>
+</defs>
+<rect x="10" y="10" width="900" height="380" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+<text x="460" y="36" text-anchor="middle" font-size="15" font-weight="600" fill="#1f3a5f">detect() → extract() → build() → cluster() → analyze → report → export</text>
+
+<g>
+<rect x="40" y="70" width="120" height="52" rx="8" fill="#ddf4ff" stroke="#54aeff"/>
+<text x="100" y="92" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0969da">detect(root)</text>
+<text x="100" y="110" text-anchor="middle" font-size="10.5" fill="#57606a">扫描目录，按类别</text>
+<text x="100" y="122" text-anchor="middle" font-size="10.5" fill="#57606a">分组文件 + 词数统计</text>
+</g>
+<g>
+<rect x="200" y="70" width="130" height="52" rx="8" fill="#dafbe1" stroke="#2da44e"/>
+<text x="265" y="92" text-anchor="middle" font-size="12.5" font-weight="600" fill="#116329">extract(paths, root)</text>
+<text x="265" y="110" text-anchor="middle" font-size="10.5" fill="#57606a">tree-sitter AST 抽取</text>
+<text x="265" y="122" text-anchor="middle" font-size="10.5" fill="#57606a">返回 {nodes, edges}</text>
+</g>
+<g>
+<rect x="370" y="70" width="110" height="52" rx="8" fill="#fff8e6" stroke="#d4a72c"/>
+<text x="425" y="92" text-anchor="middle" font-size="12.5" font-weight="600" fill="#9a6700">validate</text>
+<text x="425" y="110" text-anchor="middle" font-size="10.5" fill="#57606a">schema 前置校验</text>
+<text x="425" y="122" text-anchor="middle" font-size="10.5" fill="#57606a">结构异常自动修复</text>
+</g>
+<g>
+<rect x="520" y="70" width="110" height="52" rx="8" fill="#ddf4ff" stroke="#54aeff"/>
+<text x="575" y="92" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0969da">build()</text>
+<text x="575" y="110" text-anchor="middle" font-size="10.5" fill="#57606a">构建 NetworkX 图</text>
+<text x="575" y="122" text-anchor="middle" font-size="10.5" fill="#57606a">+ 语义节点折叠</text>
+</g>
+<g>
+<rect x="670" y="70" width="110" height="52" rx="8" fill="#ddf4ff" stroke="#54aeff"/>
+<text x="725" y="92" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0969da">cluster(G)</text>
+<text x="725" y="110" text-anchor="middle" font-size="10.5" fill="#57606a">Leiden 社区发现</text>
+<text x="725" y="122" text-anchor="middle" font-size="10.5" fill="#57606a">(无则 Louvain)</text>
+</g>
+<line x1="160" y1="96" x2="196" y2="96" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="330" y1="96" x2="366" y2="96" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="480" y1="96" x2="516" y2="96" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="630" y1="96" x2="666" y2="96" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<g>
+<rect x="370" y="170" width="410" height="46" rx="8" fill="#f0f6ff" stroke="#54aeff"/>
+<text x="575" y="190" text-anchor="middle" font-size="12" font-weight="600" fill="#0969da">analyze helpers</text>
+<text x="575" y="206" text-anchor="middle" font-size="10.5" fill="#57606a">god_nodes · surprising_connections · suggest_questions · import_cycles · graph_diff</text>
+</g>
+<g>
+<rect x="40" y="170" width="180" height="46" rx="8" fill="#fff8e6" stroke="#d4a72c"/>
+<text x="130" y="190" text-anchor="middle" font-size="12" font-weight="600" fill="#9a6700">cache.py（旁路）</text>
+<text x="130" y="206" text-anchor="middle" font-size="10.5" fill="#57606a">语义缓存判断 → 只抽未缓存文件</text>
+</g>
+<line x1="265" y1="124" x2="224" y2="168" stroke="#d4a72c" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+<line x1="575" y1="126" x2="575" y2="166" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<g>
+<rect x="120" y="260" width="200" height="46" rx="8" fill="#dafbe1" stroke="#2da44e"/>
+<text x="220" y="280" text-anchor="middle" font-size="12" font-weight="600" fill="#116329">report.generate()</text>
+<text x="220" y="296" text-anchor="middle" font-size="10.5" fill="#57606a">GRAPH_REPORT.md</text>
+</g>
+<g>
+<rect x="380" y="260" width="250" height="46" rx="8" fill="#dafbe1" stroke="#2da44e"/>
+<text x="505" y="280" text-anchor="middle" font-size="12" font-weight="600" fill="#116329">export.to_*</text>
+<text x="505" y="296" text-anchor="middle" font-size="10.5" fill="#57606a">json · html · obsidian · svg · graphml · cypher</text>
+</g>
+<g>
+<rect x="690" y="260" width="210" height="46" rx="8" fill="#ddf4ff" stroke="#54aeff"/>
+<text x="795" y="280" text-anchor="middle" font-size="12" font-weight="600" fill="#0969da">下游消费</text>
+<text x="795" y="296" text-anchor="middle" font-size="10.5" fill="#57606a">MCP server · watch · wiki · Neo4j</text>
+</g>
+<line x1="500" y1="218" x2="260" y2="256" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="560" y1="218" x2="500" y2="256" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="620" y1="218" x2="760" y2="256" stroke="#57606a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<text x="460" y="350" text-anchor="middle" font-size="11" fill="#57606a">skill（编排层）负责调用各阶段；library 各阶段独立、中间格式为 plain dict / NetworkX 图</text>
+<text x="460" y="370" text-anchor="middle" font-size="11" fill="#cf222e">关键约束：extract() 必须显式传 root，否则 node id 会锚定到错误的公共父目录</text>
+</svg>
+<figcaption>图 1 · graphify 数据流水线（来源：ARCHITECTURE.md）</figcaption>
+</figure>
+
+<h3>模块职责表</h3>
+<table>
+<tr><th>模块</th><th>入口</th><th>职责</th></tr>
+<tr><td><code>detect.py</code></td><td><code>detect(root)</code></td><td>目录 → 扫描摘要 dict（按类别分组 files、total_files/total_words）</td></tr>
+<tr><td><code>extract.py</code></td><td><code>extract(paths, *, root)</code> / <code>collect_files()</code></td><td>统一抽取入口；目录展开为文件列表；dispatch 按后缀路由 extractor</td></tr>
+<tr><td><code>build.py</code></td><td><code>build(extractions)</code> / <code>build_from_json()</code></td><td>抽取 dict → NetworkX 图；含语义节点折叠与来源保护</td></tr>
+<tr><td><code>cluster.py</code></td><td><code>cluster(G)</code></td><td>社区聚类，输出 <code>{community_id: [node_id]}</code>，不改传入图</td></tr>
+<tr><td><code>analyze.py</code></td><td>兄弟函数集合</td><td>god nodes、意外连接、建议问题、import 环、图 diff</td></tr>
+<tr><td><code>report.py</code></td><td><code>generate()</code></td><td>生成 GRAPH_REPORT.md</td></tr>
+<tr><td><code>export.py</code></td><td>按格式兄弟函数</td><td>json / html / obsidian / svg / graphml / canvas / cypher</td></tr>
+<tr><td><code>wiki.py</code></td><td><code>to_wiki()</code></td><td>每个社区一篇 Markdown 文章 + index.md</td></tr>
+<tr><td><code>cache.py</code></td><td><code>check/save_semantic_cache</code></td><td>语义缓存，支持增量抽取</td></tr>
+<tr><td><code>security.py</code></td><td>四个校验函数</td><td>所有外部输入的安全边界（URL / 抓取 / 路径 / label）</td></tr>
+<tr><td><code>serve.py</code></td><td><code>serve()</code> / <code>serve_http()</code></td><td>MCP stdio server / HTTP server</td></tr>
+<tr><td><code>watch.py</code></td><td><code>watch(path, debounce=3)</code></td><td>文件变化触发重建</td></tr>
+</table>
+
+<h2 id="s4"><span class="secno">4</span>graph.json：schema 与方向语义</h2>
+
+<h3>4.1 extractor 统一契约</h3>
+<pre><code>{
+  "nodes": [ { "id": "唯一字符串", "label": "人类可读名", "source_file": "相对路径", "source_location": "L42" } ],
+  "edges": [ { "source": "id_a", "target": "id_b", "relation": "calls|imports|uses|...",
+              "confidence": "EXTRACTED|INFERRED|AMBIGUOUS" } ]
+}</code></pre>
+
+<table>
+<tr><th>置信标签</th><th>含义</th></tr>
+<tr><td><span class="tag tag-extracted">EXTRACTED</span></td><td>源码中显式存在（如 import 语句、直接调用）</td></tr>
+<tr><td><span class="tag tag-inferred">INFERRED</span></td><td>合理推断（如 call-graph 二次分析、上下文共现）；<code>path</code> 的整体置信度 = 最弱一跳</td></tr>
+<tr><td><span class="tag tag-ambiguous">AMBIGUOUS</span></td><td>不确定关系，会在报告中标记供人工审查</td></tr>
+</table>
+
+<h3>4.2 方向语义（易踩坑点）</h3>
+<div class="warn"><strong>graph.json 写出 <code>"directed": false</code>，但每条边实际都是有向的</strong>。方向由 arc 顺序（source → target）表达；较老的文件边上有 <code>_src</code>/<code>_tgt</code> 标记（优先）。直接用 <code>json_graph.node_link_graph()</code> 加载会丢方向——必须走 <code>paths.load_node_link_graph()</code> 或先 <code>restore_arc_direction()</code>。读方向只能用 <code>data.get("_src", u)</code>，不能从 <code>u, v</code> 读。</div>
+
+<h2 id="s5"><span class="secno">5</span>多语言抽取策略</h2>
+<p>约 40 种语言基于 tree-sitter AST 做跨文件解析。整体哲学是<strong>推断极其保守</strong>：未知、歧义、被遮蔽、动态、模板依赖的情况大多保持 unlinked，不猜。</p>
+<table>
+<tr><th>语言</th><th>关键策略</th></tr>
+<tr><td>Python</td><td>nested class id 含父类 id；<code>self.field = value</code> 注入字段类型追踪；模块级构造赋值可解析成员调用（INFERRED）</td></tr>
+<tr><td>C++</td><td>receiver chain 解析（裸指针 / unique_ptr / shared_ptr）；别名（using/typedef）带作用域与声明顺序；前向声明/声明-定义折叠需"exact include proof"；条件编译分支按字节保留恢复（不跑预处理器）；继承成员只沿显式可达基类，菱形/虚基类不解析</td></tr>
+<tr><td>Java</td><td>package/import 上下文 + 继承成员的词法查找；歧义继承类型不链接</td></tr>
+<tr><td>C#</td><td>partial 类型跨文件按路径合并（含 arity）；构造函数/索引器/运算符独立成节点</td></tr>
+<tr><td>Go</td><td>成员调用经 declared receiver type 解析（INFERRED）；包级裸调用保持 EXTRACTED</td></tr>
+<tr><td>JS/TS</td><td>default import 的对象字面量调用复用静态方法节点；词法遮蔽/计算属性/动态别名一律不推断</td></tr>
+<tr><td>Kotlin / Swift</td><td>namespace 持久化、限定接收者名保留；先词法作用域再模块级解析</td></tr>
+<tr><td>Terraform/HCL</td><td>节点 id 记录生成时的 scope，缓存命中后重写为当前 scan root 的相对路径</td></tr>
+<tr><td>SQL / Postgres</td><td>schema 抽取 / 活库内省（<code>--postgres DSN</code>）</td></tr>
+</table>
+
+<div class="note"><strong>缓存失效高度显式</strong>：多个 AST cache schema 版本（7/9/33/37/40/41/43/47/51…）通过"退役"机制强制重建对应语言的旧缓存，例如 C++ 语义升级后需要 <code>graphify extract . --code-only --force</code> 全量重建。语义来源（rationale / URL / 作者 / 时间）绝不被静默折叠丢弃——含 provenance 的语义节点即使与 AST 节点同名也保持独立。</div>
+
+<h3>如何新增一种语言（五步，全部必做）</h3>
+<ol>
+<li>在 <code>graphify/extractors/</code> 新增 <code>extract_&lt;lang&gt;(path) -&gt; dict</code>，遵循 tree-sitter parse → walk → {nodes, edges} + 二次 call-graph 推断的既有模式</li>
+<li>在 <code>extract()</code> 的 dispatch table 注册后缀</li>
+<li><code>collect_files()</code> 同步注册</li>
+<li><code>detect.py</code> 的 <code>CODE_EXTENSIONS</code> 与 <code>watch.py</code> 的 <code>_WATCHED_EXTENSIONS</code> 同步更新</li>
+<li><code>pyproject.toml</code> 加 tree-sitter 依赖 + <code>tests/fixtures/</code> 加 fixture + <code>tests/test_languages.py</code> 加测试</li>
+</ol>
+
+<h2 id="s6"><span class="secno">6</span>Skill 集成矩阵（20+ 平台）</h2>
+<p><code>graphify install</code> 自动检测助手并注册 skill；默认装到用户 profile，<code>--project</code> 装到当前 repo（如 <code>.claude/skills/graphify/SKILL.md</code>、<code>.agents/skills/graphify/SKILL.md</code>）。</p>
+<table>
+<tr><th>机制</th><th>平台</th><th>说明</th></tr>
+<tr><td>Hook 平台</td><td>Claude Code、CodeBuddy、Gemini CLI</td><td>PreToolUse hook 在 search 类工具调用前自动提示先查图谱；Claude Code 还会在 Read/Glob 及 cat/head/tail/sed 读取前触发</td></tr>
+<tr><td>指令文件平台</td><td>Codex、OpenCode、Cursor、Trae 等</td><td>通过 <code>AGENTS.md</code>、<code>.cursor/rules/</code> 持久化 query-first 指令（Codex 用 <code>$graphify</code>）</td></tr>
+<tr><td>Agent 通用</td><td>Agent Skills（<code>--platform agents</code>）</td><td>全局 <code>~/.agents/skills/</code> 或项目 <code>./.agents/skills/</code></td></tr>
+<tr><td>原生 guard</td><td>Pi</td><td><code>graphify pi guard install</code>：在 read/grep/find 前跑 <code>graphify hook-guard</code></td></tr>
+</table>
+<p>skill 内容由 <code>tools/skillgen</code> 生成，按"渐进披露"拆分为精简核心（约 615 行）+ 按需加载的 <code>references/</code>，CI 用 drift gate 防止生成物漂移。</p>
+<div class="note"><strong>CLI skill 与 MCP 的区别</strong>：<code>graphify install</code> 只装本地集成，不建 MCP 连接；MCP client 不必然跑本地 CLI query；hosted MCP 连接服务的可能是另一台机器上的图。排障时先分清是 CLI 缺失还是 MCP 连接问题。</div>
+
+<h2 id="s7"><span class="secno">7</span>输出产物</h2>
+<table>
+<tr><th>产物</th><th>生成方式</th><th>内容</th></tr>
+<tr><td>graph.html</td><td>默认</td><td>力导向交互图谱（默认 5000 节点上限，超出转聚合社区视图）</td></tr>
+<tr><td>GRAPH_REPORT.md</td><td>默认</td><td>核心概念、意外连接、建议问题（上限 7 个，按类型交错）</td></tr>
+<tr><td>graph.json</td><td>默认</td><td>完整图谱，带 <code>schema_version</code> / <code>graphify_version</code></td></tr>
+<tr><td>wiki</td><td><code>--wiki</code></td><td>每社区一篇 Markdown + index.md</td></tr>
+<tr><td>callflow HTML</td><td><code>export callflow-html</code></td><td>Mermaid 架构/调用流</td></tr>
+<tr><td>Obsidian / SVG / GraphML / Cypher</td><td><code>export</code></td><td>Obsidian vault、SVG、Neo4j/FalkorDB 导入</td></tr>
+<tr><td>MCP server</td><td><code>serve.py</code></td><td>stdio 或 Streamable HTTP（spec 2025-03-26），含 API key 中间件与 DNS rebinding 防护</td></tr>
+</table>
+
+<h2 id="s8"><span class="secno">8</span>配置参考</h2>
+<h3>.graphifyrc（放在 scan root，<code>key=value</code>，# 注释）</h3>
+<table>
+<tr><th>key</th><th>示例</th><th>说明</th></tr>
+<tr><td><code>language.&lt;ext&gt;</code></td><td><code>language.inc=php</code></td><td>消歧多义后缀（.inc/.h/.m 等在不同项目含义不同）</td></tr>
+<tr><td><code>viz_node_limit</code></td><td><code>viz_node_limit=0</code></td><td>可视化节点上限（适用于 cluster-only/update/watch/hooks）</td></tr>
+<tr><td><code>query_budget / query_depth</code></td><td><code>query_budget=4000</code></td><td>查询预算与深度（默认 2000 / 2；CLI 显式参数可覆盖）</td></tr>
+</table>
+<h3>重要环境变量</h3>
+<table>
+<tr><th>变量</th><th>作用</th></tr>
+<tr><td><code>GRAPHIFY_BACKEND</code></td><td>选后端；<code>=none</code> 禁用所有 LLM（纯代码图）；<code>=ollama</code> 全本地</td></tr>
+<tr><td><code>GRAPHIFY_CLAUDE_PROMPT_CACHE</code> / <code>GRAPHIFY_CLAUDE_CLI_MODEL</code></td><td>Claude 后端的 prompt 缓存开关 / 模型覆盖（社区命名用 haiku/sonnet 即可）</td></tr>
+<tr><td><code>GRAPHIFY_QUERY_LOG_DISABLE=1</code></td><td>禁用查询日志（默认写 <code>~/.cache/graphify-queries.log</code>，JSON Lines）</td></tr>
+</table>
+<h3>忽略规则</h3>
+<p>支持 <code>.gitignore</code>、项目级 <code>.graphifyignore</code>、<code>--exclude</code> 三层；<code>--no-gitignore</code> 只绕过 VCS 规则。被忽略路径会在 <code>extract</code> 报告中给出最多三个示例。</p>
+<h3>Optional extras（<code>uv tool install "graphifyy[extra]"</code>）</h3>
+<div class="fig-plain">pdf · office · google · video(faster-whisper+yt-dlp) · mcp · watch · neo4j · falkordb · svg · leiden · ollama · openai · gemini · anthropic · bedrock · azure · sql · postgres · dm · terraform · pascal · ocaml · commonlisp · robot · chinese(jieba 分词) · all</div>
+
+<h2 id="s9"><span class="secno">9</span>安全与隐私设计</h2>
+<table>
+<tr><th>维度</th><th>策略</th></tr>
+<tr><td>代码</td><td>tree-sitter 本地解析，不出本机；code-only 语料无需 API key、可完全离线（<code>--code-only</code>）</td></tr>
+<tr><td>媒体</td><td>音视频用 faster-whisper 本地转写；docs/PDF/图片的语义抽取会发送给所配后端（自动检测优先级 Gemini → Kimi → Claude → OpenAI → DeepSeek → Azure → Bedrock → Ollama；注意 Kimi 路由到 Moonshot 中国服务器）</td></tr>
+<tr><td>遥测</td><td>No telemetry、no usage tracking、no analytics</td></tr>
+<tr><td>输入边界</td><td>所有 URL 经 <code>validate_url()</code>（仅 http/https，阻 <code>file://</code> 重定向）；抓取带 size cap/timeout；图路径必须落在 <code>graphify-out/</code> 内；label 去控制字符、限 256 字符</td></tr>
+<tr><td>section 读取</td><td>限制在项目根内；<code>redact_secrets</code> 脱敏；section 文本不进 graph.json</td></tr>
+</table>
+
+<h2 id="s10"><span class="secno">10</span>基准测试（官方口径）</h2>
+<table>
+<tr><th>Benchmark</th><th>指标</th><th>graphify</th><th>对比</th></tr>
+<tr><td>LOCOMO n=300</td><td>recall@10</td><td><strong>0.497</strong></td><td>mem0 0.048 · supermemory 0.149</td></tr>
+<tr><td>LOCOMO n=300</td><td>QA accuracy</td><td>45.3%</td><td>supermemory 49.7% · mem0 27.3%</td></tr>
+<tr><td>LongMemEval-S n=50</td><td>QA accuracy</td><td><strong>76%</strong></td><td>与 dense RAG 持平</td></tr>
+<tr><td>ERPNext 跨工具 n=6</td><td>关键事实覆盖</td><td><strong>82.0%</strong></td><td>grep/read 基线 70.8%</td></tr>
+<tr><td>图构建</td><td>LLM credits</td><td><strong>0</strong></td><td>多数按 token 计费</td></tr>
+</table>
+<p class="meta">评测说明：同 harness、同模型同预算；judge 经第二 judge 盲验（一致率 90.6%，Cohen's kappa 0.81）。官方自测口径，落地前建议用自己的语料复测。</p>
+
+<h2 id="s11"><span class="secno">11</span>采纳路径建议（P0/P1/P2）</h2>
+<table>
+<tr><th>级别</th><th>动作</th><th>理由</th></tr>
+<tr><td class="p0">P0</td><td>在目标代码库跑 code-only 本地建图：<code>uv tool install graphifyy</code> → <code>graphify . --code-only --no-viz</code> → 看 <code>GRAPH_REPORT.md</code> 和 <code>graphify explain</code>/<code>path</code> 的质量</td><td>零 API key、零成本、零外传，10 分钟内可验证图谱质量是否达标（对 C++ 大型项目尤其要看 receiver/别名解析的实际覆盖率）</td></tr>
+<tr><td class="p0">P0</td><td>验证方向语义坑：任何自写消费 <code>graph.json</code> 的代码必须走 <code>load_node_link_graph()</code> / <code>_src</code><code>_tgt</code></td><td>"directed: false 但每边有向"是官方明确的设计坑（issue #563/#2309）</td></tr>
+<tr><td class="p1">P1</td><td>接入 CodeBuddy skill：<code>graphify install --platform codebuddy</code>，体验 always-on 的 query-first 工作流 + PreToolUse hook</td><td>官方支持 CodeBuddy 平台，机制与 Claude Code 相同</td></tr>
+<tr><td class="p1">P1</td><td>配置 docs/PDF 语义抽取后端（Ollama 可全本地）；加 <code>graphify hook install</code> 让 commit/checkout 自动重建</td><td>把文档、ADR/RFC、设计 PDF 并入同一张图，配合增量更新</td></tr>
+<tr><td class="p2">P2</td><td>MCP stdio server / 团队共享图 / Neo4j·FalkorDB 导出 / Graphify Cloud（跨仓 monorepo、PR review、Sentry/Jira 连接器）</td><td>团队级与 SDLC 集成，涉及网络与治理决策，先验证单人价值再上</td></tr>
+</table>
+
+<h2 id="s12"><span class="secno">12</span>术语表</h2>
+<table>
+<tr><th>术语</th><th>全称 / 中文</th><th>含义</th></tr>
+<tr><td>AST</td><td>Abstract Syntax Tree，抽象语法树</td><td>源代码的树状结构化表示，graphify 用它做确定性解析</td></tr>
+<tr><td>tree-sitter</td><td>—</td><td>增量式语法解析库，支持数十种语言，编辑器领域事实标准</td></tr>
+<tr><td>MCP</td><td>Model Context Protocol，模型上下文协议</td><td>AI 助手与外部工具/数据源的标准连接协议（stdio / HTTP）</td></tr>
+<tr><td>god node</td><td>枢纽节点</td><td>连接度最高的概念节点，指示系统核心枢纽</td></tr>
+<tr><td>community</td><td>社区</td><td>用 Leiden 算法从图中划分出的子系统簇</td></tr>
+<tr><td>Leiden / Louvain</td><td>—</td><td>两种社区发现算法；graphify 优先 Leiden，无依赖时回退 networkx Louvain</td></tr>
+<tr><td>NetworkX</td><td>—</td><td>Python 图计算库，graphify 的中间图表示</td></tr>
+<tr><td>provenance</td><td>来源 / 溯源</td><td>节点的 rationale、来源 URL、作者、采集时间等元数据，受保护不可静默丢弃</td></tr>
+<tr><td>ADR / RFC</td><td>Architecture Decision Record / Request for Comments</td><td>架构决策记录 / 征求意见稿；其引用会成为图的一等节点</td></tr>
+<tr><td>PreToolUse hook</td><td>工具调用前置钩子</td><td>AI 助手在调用某工具前自动执行的拦截脚本</td></tr>
+<tr><td>monorepo</td><td>单一大仓库</td><td>多项目共存于同一代码仓库的组织方式</td></tr>
+<tr><td>YAGNI 之外的缩写</td><td>YC S26</td><td>Y Combinator 2026 夏季批次孵化</td></tr>
+</table>
+
+<div class="footer">
+整理来源：Graphify-Labs/graphify（v8 分支，v0.9.113，2026-11-19）README.md 与 ARCHITECTURE.md · 文档整理日期 2026-11-20 · 本文档为离线整理稿，数据截至所引版本。
+</div>
+
+</body>
+</html>
